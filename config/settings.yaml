@@ -1,0 +1,85 @@
+# TRMS N-MPC vs PID - experiment settings.
+# Any change to a value that affects tuning (model, Ts, tuning scenario,
+# objective, controller settings, search budget) invalidates the cached
+# parameters in config/tuned_parameters.json and triggers automatic re-tuning.
+
+simulation:
+  Ts: 0.05              # control sample time [s], identical for both controllers
+  plant_substeps: 10    # RK4 sub-steps per sample for the "true" plant
+
+# Pitch references stay inside the reachable band of this parameter set:
+# with u_v <= 1 the beam cannot be held above roughly +0.09 rad (see README).
+# events: [axis, time_s, value_rad]
+scenarios:
+  evaluation:           # used for the reported comparison
+    duration: 60.0
+    events:
+      - [pitch,  0.0, -0.20]
+      - [yaw,   10.0,  0.50]
+      - [pitch, 20.0, -0.05]
+      - [yaw,   30.0, -0.50]
+      - [pitch, 40.0, -0.40]
+      - [yaw,   50.0,  0.00]
+  tuning:               # used only inside the optimisers (different values on purpose,
+    duration: 38.0      # but it spans the same pitch range; long final hold exposes slow drift)
+    events:
+      - [pitch,  0.0, -0.30]
+      - [yaw,    6.0,  0.40]
+      - [pitch, 12.0, -0.10]
+      - [yaw,   18.0, -0.30]
+      - [pitch, 22.0, -0.45]
+
+# Shared tuning objective (lower is better), identical for both controllers:
+# J = w_itae_pitch*ITAE_pitch + w_itae_yaw*ITAE_yaw + w_tv*TV(u)
+#     + w_overshoot*sum(max(0, OS% - allowance)) + divergence_penalty
+# ITAE time is measured from the latest reference change (any axis).
+objective:
+  w_itae_pitch: 1.0
+  w_itae_yaw: 1.0
+  w_tv: 0.02
+  w_overshoot: 0.05
+  overshoot_allowance_pct: 5.0
+  divergence_pitch_limit: 1.4       # |pitch| [rad]
+  divergence_yaw_error_limit: 1.5   # |yaw error| [rad]
+  divergence_penalty: 1000.0
+
+pid:
+  derivative_filter_tf: 0.1     # derivative low-pass time constant [s]
+  bounds_log10:                 # search space (log10 of each gain)
+    Kp_pitch: [-2.0, 1.5]
+    Ki_pitch: [-3.0, 1.0]
+    Kd_pitch: [-3.0, 1.0]
+    Kp_yaw:   [-2.0, 1.5]
+    Ki_yaw:   [-3.0, 1.0]
+    Kd_yaw:   [-3.0, 1.0]
+  de: {popsize: 15, maxiter: 120, tol: 1.0e-7, seed: 42}
+
+nmpc:
+  q_pitch: 1.0                  # fixed; other weights are relative to it
+  terminal_weight: 5.0          # stage weight multiplier at k = N
+  prediction_substeps: 2        # RK4 sub-steps per sample in the prediction model
+  reference_preview: false      # false = controller only sees the current reference (fair vs PID)
+  ipopt:                        # warm start + adaptive barrier: ~2x faster than defaults
+    max_iter: 100
+    tol: 1.0e-6
+    mu_strategy: adaptive
+    warm_start_init_point: "yes"
+    mu_init: 1.0e-3
+    warm_start_bound_push: 1.0e-6
+    warm_start_mult_bound_push: 1.0e-6
+  bounds:
+    q_yaw_log10:        [-1.0, 1.5]
+    q_rate_pitch_log10: [-4.0, 0.0]
+    q_rate_yaw_log10:   [-4.0, 0.0]
+    r_pitch_log10:      [-4.0, 0.0]
+    r_yaw_log10:        [-4.0, 0.0]
+    horizon_steps:      [15, 40]    # N=10 (0.5 s) cannot catch the falling beam
+  de: {popsize: 4, maxiter: 6, tol: 1.0e-4, seed: 42, workers: -1}
+
+# --quick shrinks the search budgets (smoke test); cached separately.
+quick:
+  pid_de: {popsize: 8, maxiter: 10}
+  nmpc_de: {popsize: 2, maxiter: 1}
+
+output:
+  root: outputs

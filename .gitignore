@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Simulation outputs (regenerated on every run)
+outputs/
+
+# CasADi / IPOPT scratch
+*.so
+nlp*.c
+jit_*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
