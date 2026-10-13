@@ -1,7 +1,7 @@
 # TRMS reference tracking: PID vs N-MPC
 
 Run: reference run (python main.py)  
-Created: 2026-10-13T14:45:02  
+Created: 2026-10-14T00:19:59  
 Evaluation scenario: pitch -0.20 rad @ 0s, yaw +0.50 rad @ 10s, pitch -0.05 rad @ 20s, yaw -0.50 rad @ 30s, pitch -0.40 rad @ 40s, yaw +0.00 rad @ 50s
 
 ## Whole-run metrics (lower is better)
@@ -10,17 +10,17 @@ Evaluation scenario: pitch -0.20 rad @ 0s, yaw +0.50 rad @ 10s, pitch -0.05 rad 
 |---|---|---|
 | IAE pitch [rad·s] | 10.2 | 1.88 |
 | IAE yaw [rad·s] | 8.29 | 1.87 |
-| RMSE pitch [rad] | 0.247 | 0.0865 |
+| RMSE pitch [rad] | 0.248 | 0.0865 |
 | RMSE yaw [rad] | 0.246 | 0.124 |
-| Mean overshoot pitch [%] | 44.4 | 0.586 |
-| Mean overshoot yaw [%] | 0.233 | 2.62 |
+| Mean overshoot pitch [%] | 44.5 | 0.585 |
+| Mean overshoot yaw [%] | 0.231 | 2.62 |
 | Mean settling time pitch, settled steps only [s] | not settled | 1.62 |
 | Mean settling time yaw, settled steps only [s] | 6.95 | 2.82 |
 | Steps not settled (pitch / yaw) | 3 / 2 | 0 / 0 |
 | Control effort ∫u² (total) | 25.4 | 33.7 |
 | Input total variation (total) | 11 | 44.6 |
-| Saturated samples pitch [%] | 0.2 | 18.9 |
-| Compute time mean / max [ms] | 0.13 / 1.0 | 15.82 / 171.8 |
+| Saturated samples pitch [%] | 0.7 | 18.8 |
+| Compute time mean / max [ms] | 0.06 / 0.6 | 10.78 / 113.0 |
 
 ## Per-step results
 
@@ -29,8 +29,8 @@ Evaluation scenario: pitch -0.20 rad @ 0s, yaw +0.50 rad @ 10s, pitch -0.05 rad 
 | pitch @0s (-38.5°→-11.5°) | 25.5 | not settled | 0.177 | 1.75 |
 | yaw @10s (0.0°→28.6°) | 0 | not settled | 2.38 | 2.5 |
 | pitch @20s (-11.5°→-2.9°) | 31.9 | not settled | 0.59 | 1.8 |
-| yaw @30s (28.6°→-28.6°) | 0.698 | 6.95 | 5.49 | 4.1 |
-| pitch @40s (-2.9°→-22.9°) | 75.8 | not settled | 0.99 | 1.3 |
+| yaw @30s (28.6°→-28.6°) | 0.693 | 6.95 | 5.49 | 4.1 |
+| pitch @40s (-2.9°→-22.9°) | 76 | not settled | 0.989 | 1.3 |
 | yaw @50s (-28.6°→0.0°) | 0 | not settled | 3.94e-10 | 1.85 |
 
 ## Controller parameters
@@ -49,7 +49,7 @@ Evaluation scenario: pitch -0.20 rad @ 0s, yaw +0.50 rad @ 10s, pitch -0.05 rad 
     },
     "Ts": 0.05,
     "derivative_filter_tf": 0.1,
-    "anti_windup": "conditional integration"
+    "anti_windup": "conditional integration + integrator clamp to actuator range"
   },
   "N-MPC": {
     "type": "N-MPC",
@@ -67,7 +67,8 @@ Evaluation scenario: pitch -0.20 rad @ 0s, yaw +0.50 rad @ 10s, pitch -0.05 rad 
     "terminal_weight": 5.0,
     "prediction_integrator": "RK4 x2 substeps",
     "reference_preview": false,
-    "Ts": 0.05
+    "Ts": 0.05,
+    "warm_start": "shifted primal + shifted multipliers"
   }
 }
 ```

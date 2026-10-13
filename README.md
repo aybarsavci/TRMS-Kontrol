@@ -22,10 +22,11 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate      Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 
-python main.py                 # uses the cached tuned parameters (≈1 min)
+python main.py                 # uses the cached tuned parameters (≈30 s)
 python main.py --retune all    # re-optimise both controllers, then simulate
 python main.py --retune pid    # re-optimise only the PID (or: --retune nmpc)
 python main.py --quick         # small search budget, for a smoke test only
+python tests/test_core.py      # regression tests (or: python -m pytest tests/)
 ```
 
 The cached parameters are reused only while their **signature** still matches. The
@@ -34,9 +35,10 @@ scenario, objective, controller settings and search budget. If you edit any of
 these in `config/settings.yaml`, the affected controller is re-tuned
 automatically on the next run.
 
-Typical tuning time on a laptop: PID ≈ 3–5 min (vectorised population). N-MPC
-≈ 10–30 min, depending on the number of CPU cores, because each candidate is a
-full closed-loop IPOPT simulation and candidates run in parallel processes.
+Typical tuning time: PID ≈ 2–3 min (vectorised population). N-MPC ≈ 10–20 min,
+depending on the number of CPU cores, because each candidate is a full
+closed-loop IPOPT simulation and candidates run in parallel processes.
+Measured on a 2-core machine: PID 142 s, N-MPC 1,181 s (see *Performance* in §6).
 
 ## 2. Repository layout
 
@@ -53,13 +55,14 @@ TRMS-Kontrol/
 │   ├── scenario.py              reference step scenarios and step segmentation
 │   ├── controllers/
 │   │   ├── pid.py               discrete PID, filtered derivative, anti-windup (vectorised core)
-│   │   └── nmpc.py              CasADi/IPOPT N-MPC, warm-started multiple shooting
+│   │   └── nmpc.py              CasADi/IPOPT N-MPC, cached solver per horizon, shifted warm start
 │   ├── tuning.py                differential-evolution auto-tuning for both controllers
 │   ├── cache.py                 signature-checked JSON parameter cache
 │   ├── simulation.py            closed-loop simulation with exhaustive telemetry
 │   ├── metrics.py               step metrics, whole-run metrics, shared tuning objective
 │   ├── plotting.py              per-controller and comparison figures
 │   └── reporting.py             CSV / JSON / NPZ / Excel / Markdown writers
+├── tests/test_core.py           regression tests (bit-identical plant, bug fixes, cache)
 └── docs/results/                figures and summary from the reference run
 ```
 
@@ -152,10 +155,14 @@ reference scenarios therefore stay in −0.45…−0.05 rad. `10_trim_envelope.p
 shows the steady-state input needed for each pitch angle. If your lab's identified
 parameters differ, edit `trms/params.py`; the cache then invalidates itself.
 
-The **same equation code** (`trms/model.py::terms`) is evaluated with numpy for
-the simulated plant and with CasADi symbols for the N-MPC prediction model. The
-plant uses RK4 with 10 sub-steps per sample; the N-MPC predicts with RK4 with 2
-sub-steps.
+The **same equation code** (`trms/model.py::terms`) is evaluated with CasADi
+symbols for both the simulated plant (`model.Plant`, RK4 with 10 sub-steps per
+sample) and the N-MPC prediction model (RK4 with 2 sub-steps), and with numpy
+for the vectorised telemetry and trim calculations. The CasADi plant reproduces
+the numpy RK4 bit for bit (`tests/test_core.py`) at about 1/70 of the cost.
+
+`TRMSParams` validates itself on creation: every divisor in the model (J_v,
+T_mr, T_tr and J_h(α_v) = D cos²α_v + E sin²α_v + F) is checked to stay positive.
 
 ## 5. Controllers
 
@@ -163,7 +170,7 @@ sub-steps.
 |---|---|---|
 | Sample time | 0.05 s | 0.05 s |
 | Measurements | pitch and yaw angles | full state (assumed measured/estimated) |
-| Structure | two SISO loops; derivative on measurement with a 0.1 s low-pass; conditional-integration anti-windup | min Σ eᵀQe + ΔuᵀRΔu, terminal weight 5×Q, x_{k+1} = RK4(x_k, u_k), u ∈ [−1, 1] |
+| Structure | two SISO loops; derivative on measurement with a 0.1 s low-pass; anti-windup by conditional integration (the integrator advances at most up to the actuator limit) plus an integrator clamp to the actuator range | min Σ eᵀQe + ΔuᵀRΔu, terminal weight 5×Q, x_{k+1} = RK4(x_k, u_k), u ∈ [−1, 1] |
 | Tuned | Kp, Ki, Kd for each axis (6) | Q = diag(q_pitch=1, q_yaw, q_rate_pitch, q_rate_yaw), R = diag(r_pitch, r_yaw), horizon N |
 | Reference | current value | current value held over the horizon (`reference_preview: false`) |
 
@@ -206,6 +213,38 @@ Search bounds, population size, iteration counts and seeds are in
 `config/settings.yaml`. The convergence history of each tuning run is stored in
 the cache and plotted as `00_tuning_convergence.png`.
 
+### Performance
+
+Measured on the same 2-core machine, same settings and seeds, before and after
+the optimisation pass of 2026-10-14:
+
+| Stage | Before | After | Speed-up |
+|---|---|---|---|
+| PID evaluation run (1,200 samples, full telemetry) | 5.0 s | 0.1–0.2 s | ≈ 30× |
+| N-MPC evaluation run (1,200 IPOPT solves) | 20.2 s | 13.7 s | 1.5× |
+| `python main.py` end to end (cached parameters) | 40.5 s | 28.0 s | 1.4× |
+| One PID tuning generation (128 candidates) | 4.3 s | 1.14 s | 3.8× |
+| PID auto-tuning (121 generations) | 519 s | 142 s | 3.7× |
+| N-MPC auto-tuning (7 generations, 2 workers) | 2,039 s | 1,181 s | 1.7× |
+
+Where the time went and what changed:
+
+* **Plant integration.** The numpy RK4 made ~40 small-array calls per sample (3 ms).
+  `model.Plant` evaluates the same equations as one CasADi SX function (~40 µs,
+  bit-identical results); populations use `Function.map`.
+* **Telemetry.** Buffers are pre-allocated; derived quantities (derivatives, rotor
+  speeds, torques, running integrals) are computed once, vectorised over the whole
+  trajectory, instead of per sample.
+* **N-MPC solver reuse.** The Q/R weights are NLP parameters, so one solver (graph,
+  exact derivatives, IPOPT instance) is built per horizon N and reused. Tuning
+  previously rebuilt it for every candidate.
+* **N-MPC warm start.** Primal guess and multipliers are now shifted consistently
+  (the multipliers used to be passed unshifted): 9 % fewer IPOPT iterations.
+* **Not adopted, measured:** JIT-compiling the NLP to C (162 s compile per horizon
+  for a 25 % faster solve), stage-interleaved variable ordering (no gain) and
+  CasADi's FATROP solver (did not converge on this problem). The remaining solve
+  time is IPOPT's own per-iteration work.
+
 ## 7. Metrics
 
 * **Per step** (each step's window ends at the next reference change on either axis):
@@ -230,12 +269,12 @@ These come from a full-budget run: `python main.py --retune all`, then a cached 
 | Metric (60 s evaluation scenario) | PID | N-MPC |
 |---|---|---|
 | IAE pitch / yaw [rad·s] | 10.2 / 8.29 | 1.88 / 1.87 |
-| RMSE pitch / yaw [rad] | 0.247 / 0.246 | 0.087 / 0.124 |
+| RMSE pitch / yaw [rad] | 0.248 / 0.246 | 0.087 / 0.124 |
 | Steps settled within 2 % (pitch / yaw) | 0 of 3 / 1 of 3 | 3 of 3 / 3 of 3 |
-| Mean overshoot pitch / yaw [%] | 44.4 / 0.2 | 0.6 / 2.6 |
+| Mean overshoot pitch / yaw [%] | 44.5 / 0.2 | 0.6 / 2.6 |
 | Control effort ∫u² | 25.4 | 33.7 |
 | Input total variation | 11.0 | 44.6 |
-| Compute time mean / max [ms] (Ts = 50 ms) | 0.13 / < 15 | 16 / 170–310 (varies by run) |
+| Compute time mean / max [ms] (Ts = 50 ms) | 0.06 / < 1 | 11–16 / 110–310 (varies by run) |
 
 **Tuned parameters** (in `config/tuned_parameters.json`):
 
@@ -259,9 +298,9 @@ These come from a full-budget run: `python main.py --retune all`, then a cached 
 * **Cross-coupling.** Each yaw step disturbs the N-MPC's pitch by up to about 17°. This is the
   tail rotor's reaction torque, which acts directly on pitch rate. It is reported per step as
   `cross_coupling_peak_dev_deg`.
-* **Real-time margin.** IPOPT averages about 16 ms per 50 ms sample, but its slowest
-  sample took 170–310 ms in repeated runs (wall-clock time varies; trajectories and
-  iteration counts are identical). In each run, 1.5 % of samples exceeded the budget
+* **Real-time margin.** IPOPT averages about 11–16 ms per 50 ms sample, but its slowest
+  sample took 110–310 ms in repeated runs (wall-clock time varies; trajectories and
+  iteration counts are identical). About 1–1.5 % of samples exceeded the budget
   (`realtime_budget_exceeded_fraction` in `global_metrics.json`).
   Real-time use on hardware would need a capped iteration count or a real-time
   iteration scheme.
