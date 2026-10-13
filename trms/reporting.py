@@ -20,7 +20,7 @@ def _json(obj, path: Path):
     path.write_text(json.dumps(obj, indent=2, default=conv))
 
 
-def controller_metrics(df, steps, Ts):
+def controller_metrics(df, steps, Ts, u_limits=(-1.0, 1.0)):
     t = df["time"].values
     srows = []
     for s in steps:
@@ -35,7 +35,8 @@ def controller_metrics(df, steps, Ts):
         srows.append(m)
     sdf = pd.DataFrame(srows)
     g = global_metrics(t, df[["ref_pitch", "ref_yaw"]].values, df[["pitch", "yaw"]].values,
-                       df[["u_pitch", "u_yaw"]].values, Ts, df["compute_time_ms"].values)
+                       df[["u_pitch", "u_yaw"]].values, Ts, df["compute_time_ms"].values,
+                       u_limits=u_limits)
     for ax in ("pitch", "yaw"):
         sub = sdf[sdf["axis"] == ax]
         g[f"mean_overshoot_pct_{ax}"] = float(sub["overshoot_pct"].mean())
@@ -55,13 +56,17 @@ def write_controller_folder(folder: Path, name, df, sdf, g, describe, tuning_ent
     pd.Series(g, name=name).to_csv(folder / "global_metrics.csv", header=["value"])
     _json({"controller": describe, "tuning": tuning_entry}, folder / "controller_parameters.json")
     _json(g, folder / "global_metrics.json")
-    if predictions:
+    if predictions is not None and len(predictions):
+        # accepts the controller's pre-allocated arrays (dict) or the legacy list of dicts
+        arr = predictions if isinstance(predictions, dict) else {
+            "t": np.array([p["t"] for p in predictions]),
+            **{k: np.stack([p[k] for p in predictions]) for k in ("X", "U", "R")}}
         np.savez_compressed(
             folder / "nmpc_predictions.npz",
-            t=np.array([p["t"] for p in predictions]),
-            X=np.stack([p["X"] for p in predictions]),      # (K, N+1, 6) predicted states
-            U=np.stack([p["U"] for p in predictions]),      # (K, N, 2) planned inputs
-            R=np.stack([p["R"] for p in predictions]))      # (K, N, 2) references used
+            t=arr["t"],
+            X=arr["X"],      # (K, N+1, 6) predicted states
+            U=arr["U"],      # (K, N, 2) planned inputs
+            R=arr["R"])      # (K, N, 2) references used
     desc = (folder / "README.txt")
     desc.write_text(
         f"{name} simulation outputs\n"
@@ -70,21 +75,24 @@ def write_controller_folder(folder: Path, name, df, sdf, g, describe, tuning_ent
         "global_metrics.csv/json  whole-run error, effort, smoothness and compute-time statistics\n"
         "controller_parameters.json  final parameters + full tuning report (objective, history, bounds)\n"
         + ("nmpc_predictions.npz     predicted state/input trajectories at every sample (keys t, X, U, R)\n"
-           if predictions else "")
+           if predictions is not None and len(predictions) else "")
         + "*.png                    figures\n")
 
 
 def write_comparison(root: Path, dfs: dict, step_tables: dict, globals_: dict, params_doc: dict):
     names = list(dfs)
     # merged time series
-    merged = None
+    # Time axis and reference come from the longest run; each controller is left-joined
+    # onto it. If one run stopped early its columns are NaN-padded, instead of the old
+    # inner join silently truncating BOTH controllers to the shorter run.
+    longest = max(dfs.values(), key=len)
+    merged = longest[["time", "ref_pitch", "ref_yaw"]].copy()
     for n, df in dfs.items():
-        cols = ["time", "ref_pitch", "ref_yaw", "pitch", "yaw", "err_pitch", "err_yaw",
+        cols = ["pitch", "yaw", "err_pitch", "err_yaw",
                 "u_pitch", "u_yaw", "cum_IAE_pitch", "cum_IAE_yaw", "cum_int_u2_pitch",
                 "cum_int_u2_yaw", "compute_time_ms"]
-        d = df[cols].copy()
-        d = d.rename(columns={c: f"{c}_{n}" for c in cols if c not in ("time", "ref_pitch", "ref_yaw")})
-        merged = d if merged is None else merged.merge(d.drop(columns=["ref_pitch", "ref_yaw"]), on="time")
+        d = df[["time"] + cols].rename(columns={c: f"{c}_{n}" for c in cols})
+        merged = merged.merge(d, on="time", how="left")
     merged.to_csv(root / "comparison_timeseries.csv", index=False)
 
     step_df = pd.concat([sdf.assign(controller=n, step_id=np.arange(len(sdf)))

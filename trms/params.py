@@ -57,14 +57,43 @@ class TRMSParams:
     u_min: float = -1.0
     u_max: float = 1.0
 
+    def __post_init__(self):
+        """Reject parameter sets that would divide by zero or make the model ill-posed.
+
+        Every division in ``model.terms`` is by J_v, T_mr, T_tr or J_h(alpha_v);
+        J_h = D cos^2 + E sin^2 + F lies between min(D, E) + F and max(D, E) + F,
+        so it stays positive for every pitch angle iff F + min(D, E) > 0.
+        """
+        problems = []
+        for name in ("J_v", "T_mr", "T_tr", "l_m", "l_t", "S_f"):
+            if not getattr(self, name) > 0:
+                problems.append(f"{name} must be > 0 (got {getattr(self, name)})")
+        for name in ("K_v", "K_h", "J_mr", "J_tr", "H"):
+            if getattr(self, name) < 0:
+                problems.append(f"{name} must be >= 0 (got {getattr(self, name)})")
+        if not self.F + min(self.D, self.E) > 0:
+            problems.append("F + min(D, E) must be > 0 so that J_h(alpha_v) never vanishes")
+        if not self.u_min < self.u_max:
+            problems.append(f"u_min must be < u_max (got {self.u_min}, {self.u_max})")
+        for name in ("omega_m_poly", "F_v_poly", "omega_t_poly", "F_h_poly"):
+            if len(getattr(self, name)) < 1:
+                problems.append(f"{name} must have at least one coefficient")
+        if problems:
+            raise ValueError("Invalid TRMS parameters:\n  " + "\n  ".join(problems))
+
     def to_dict(self) -> dict:
         d = asdict(self)
         return {k: (list(v) if isinstance(v, tuple) else v) for k, v in d.items()}
 
     @property
     def rest_pitch(self) -> float:
-        """Pitch angle where gravity torque vanishes with rotors off (rad)."""
-        return math.atan((self.A - self.B) / self.C)
+        """Stable pitch equilibrium with rotors off (rad).
+
+        Gravity torque (A-B)cos(a) - C sin(a) vanishes where tan(a) = (A-B)/C.
+        ``atan2`` picks the stable root for any sign of C and cannot divide by
+        zero (identical to atan((A-B)/C) for the C > 0 of the 33-220).
+        """
+        return math.atan2(self.A - self.B, self.C)
 
 
 STATE_NAMES = ("pitch", "S_v", "u_vv", "yaw", "S_h", "u_hh")

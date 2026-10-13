@@ -34,32 +34,64 @@ class PIDState:
 
 
 def pid_step(gains, state: PIDState, y, r, Ts, tf, umin, umax):
-    """One PID update. ``gains`` (6, B); ``y``, ``r`` (2, B). Returns (u, info)."""
+    """One PID update. ``gains`` (6, B); ``y`` (2, B); ``r`` (2, B) or (2, 1). Returns (u, info).
+
+    Anti-windup is two-layered:
+      1. conditional integration: the integrator is frozen while the output is
+         saturated and the error would drive it further into saturation;
+      2. integrator clamp: the integral term alone may never exceed the actuator
+         range. Layer 1 cannot stop I from growing while a large opposite P or D
+         keeps the *sum* inside the limits; the clamp bounds that case too.
+    ``tf + Ts`` is the only divisor; ``check_timing`` guarantees it is > 0.
+    """
     Kp, Ki, Kd = gains[[0, 3]], gains[[1, 4]], gains[[2, 5]]
     e = r - y
     P = Kp * e
     a = tf / (tf + Ts)
     D = a * state.d - (Kd / (tf + Ts)) * (y - state.y_prev)
-    I_try = state.integ + Ki * Ts * e
+    I_old = state.integ
+    I_try = I_old + Ki * Ts * e
     v_try = P + I_try + D
-    freeze = ((v_try > umax) & (e > 0)) | ((v_try < umin) & (e < 0))
-    I = np.where(freeze, state.integ, I_try)
+    hi = (v_try > umax) & (e > 0)
+    lo = (v_try < umin) & (e < 0)
+    freeze = hi | lo
+    # Conditional integration. BUG FIX: the old rule kept I_old whenever the tentative
+    # output crossed a limit, so if ONE integration step jumped past the limit the
+    # integrator never moved and the output stayed short of saturation (with a large
+    # Ki it could stay stuck at 0 under a large error). Now the integrator advances
+    # up to the value that puts the output exactly on the limit, never beyond it,
+    # and never backwards (it is still frozen once the output already saturates).
+    I_hi = np.maximum(I_old, np.minimum(I_try, umax - P - D))
+    I_lo = np.minimum(I_old, np.maximum(I_try, umin - P - D))
+    I = np.where(hi, I_hi, np.where(lo, I_lo, I_try))
+    I = np.clip(I, umin, umax)
     v = P + I + D
     u = np.clip(v, umin, umax)
-    state.integ, state.d, state.y_prev = I, D, y.copy()
+    state.integ, state.d, state.y_prev = I, D, y
     return u, dict(e=e, P=P, I=I, D=D, v=v, freeze=freeze)
+
+
+def check_timing(Ts: float, tf: float):
+    if not Ts > 0:
+        raise ValueError(f"sample time Ts must be > 0 (got {Ts})")
+    if not tf >= 0:
+        raise ValueError(f"derivative filter time constant must be >= 0 (got {tf})")
 
 
 class PIDController:
     name = "PID"
 
     def __init__(self, gains: dict, Ts: float, tf: float, umin: float, umax: float):
+        check_timing(Ts, tf)
         self.gains_dict = {k: float(gains[k]) for k in GAIN_NAMES}
+        bad = [k for k, v in self.gains_dict.items() if not np.isfinite(v)]
+        if bad:
+            raise ValueError(f"non-finite PID gains: {bad}")
         self.g = np.array([self.gains_dict[k] for k in GAIN_NAMES]).reshape(6, 1)
         self.Ts, self.tf, self.umin, self.umax = Ts, tf, umin, umax
         self.state = None
 
-    def reset(self, x0):
+    def reset(self, x0, n_steps: int | None = None):
         self.state = PIDState.zeros(np.array([x0[0], x0[3]]))
 
     def step(self, t, x, ref_now, ref_fn=None):
@@ -79,4 +111,5 @@ class PIDController:
 
     def describe(self) -> dict:
         return {"type": "PID", "gains": self.gains_dict, "Ts": self.Ts,
-                "derivative_filter_tf": self.tf, "anti_windup": "conditional integration"}
+                "derivative_filter_tf": self.tf,
+                "anti_windup": "conditional integration + integrator clamp to actuator range"}

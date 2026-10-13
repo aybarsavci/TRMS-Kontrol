@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,4 +46,17 @@ class ParameterCache:
             "tuning_report": report,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=2, sort_keys=False))
+        # Atomic replace: write a temporary file in the same folder, then rename it over
+        # the cache. An interrupted run (Ctrl-C, crash, full disk) can no longer leave a
+        # half-written JSON that would silently discard every tuned result on next start.
+        fd, tmp = tempfile.mkstemp(prefix=self.path.name + ".", suffix=".tmp", dir=self.path.parent)
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(json.dumps(self.data, indent=2, sort_keys=False))
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, self.path)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise

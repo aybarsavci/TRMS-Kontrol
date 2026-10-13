@@ -12,18 +12,31 @@ def _seg(t, s):
     return (t >= s["t_start"] - 1e-9) & (t < s["t_end"] - 1e-9)
 
 
+_STEP_KEYS = ("overshoot_pct", "peak_value", "undershoot_pct", "rise_time_10_90_s",
+              "delay_time_50_s", "settling_time_2pct_s", "steady_state_error", "IAE", "ISE", "ITAE")
+
+
 def step_metrics(t, y, s, band=0.02):
-    """Classic step-response metrics for one reference segment ``s`` (scalar y)."""
+    """Classic step-response metrics for one reference segment ``s`` (scalar y).
+
+    A segment with fewer than two finite samples (a run that stopped early, or a
+    step at the very end of a scenario) yields NaN metrics and ``settled=False``
+    instead of raising on an empty array.
+    """
     m = _seg(t, s)
     tt, yy = t[m], y[m]
     r0, r1, d = s["r_from"], s["r_to"], s["step_size"]
-    sgn = np.sign(d)
-    prog = (yy - r0) / d                       # 0 -> start, 1 -> target
     out = dict(axis=s["axis"], t_start=s["t_start"], r_from=r0, r_to=r1, step_size=d)
+    if len(yy) < 2 or not np.all(np.isfinite(yy)) or d == 0:
+        out.update({k: np.nan for k in _STEP_KEYS})
+        out["settled"] = False
+        return out
+    sgn = np.sign(d)
+    prog = (yy - r0) / d                       # 0 -> start, 1 -> target (d != 0 checked above)
 
-    over = max(0.0, float(np.max(sgn * (yy - r1)))) if len(yy) else np.nan
+    over = max(0.0, float(np.max(sgn * (yy - r1))))
     out["overshoot_pct"] = 100.0 * over / abs(d)
-    out["peak_value"] = float(yy[np.argmax(sgn * yy)]) if len(yy) else np.nan
+    out["peak_value"] = float(yy[np.argmax(sgn * yy)])
     out["undershoot_pct"] = 100.0 * max(0.0, float(np.max(-sgn * (yy - r0)))) / abs(d)
 
     def first_cross(level):
@@ -45,7 +58,7 @@ def step_metrics(t, y, s, band=0.02):
     tail = tt >= tt[-1] - 1.0
     out["steady_state_error"] = float(np.mean(r1 - yy[tail]))
     e = r1 - yy
-    dt = np.diff(tt, append=tt[-1] + (tt[1] - tt[0] if len(tt) > 1 else 0))
+    dt = np.diff(tt, append=tt[-1] + (tt[1] - tt[0]))
     out["IAE"] = float(np.sum(np.abs(e) * dt))
     out["ISE"] = float(np.sum(e ** 2 * dt))
     out["ITAE"] = float(np.sum((tt - s["t_start"]) * np.abs(e) * dt))
@@ -53,8 +66,15 @@ def step_metrics(t, y, s, band=0.02):
     return out
 
 
-def global_metrics(t, ref, y, u, Ts, compute_ms=None):
-    """Whole-run metrics. ``ref``/``y``/``u``: (T, 2) arrays [pitch, yaw]."""
+def global_metrics(t, ref, y, u, Ts, compute_ms=None, u_limits=(-1.0, 1.0)):
+    """Whole-run metrics. ``ref``/``y``/``u``: (T, 2) arrays [pitch, yaw].
+
+    Saturation is measured against the actual actuator limits ``u_limits``
+    (previously a hard-coded |u| >= 0.999, wrong for non-unit or asymmetric limits).
+    """
+    umin, umax = u_limits
+    span = umax - umin
+    tol = 5e-4 * span                          # == 0.999 threshold for limits of +-1
     out = {}
     e = ref - y
     tw = t - t[0]
@@ -71,7 +91,7 @@ def global_metrics(t, ref, y, u, Ts, compute_ms=None):
         out[f"max_abs_du_{ax}"] = float(np.max(np.abs(np.diff(ui)))) if len(ui) > 1 else 0.0
         out[f"mean_u_{ax}"] = float(np.mean(ui))
         out[f"rms_u_{ax}"] = float(np.sqrt(np.mean(ui ** 2)))
-        out[f"saturation_fraction_{ax}"] = float(np.mean(np.abs(ui) >= 0.999))
+        out[f"saturation_fraction_{ax}"] = float(np.mean((ui >= umax - tol) | (ui <= umin + tol)))
     out["IAE_total"] = out["IAE_pitch"] + out["IAE_yaw"]
     out["effort_int_u2_total"] = out["effort_int_u2_pitch"] + out["effort_int_u2_yaw"]
     out["total_variation_u_total"] = out["total_variation_u_pitch"] + out["total_variation_u_yaw"]
@@ -92,18 +112,19 @@ def time_since_last_change(t, steps):
     return t - starts[np.clip(idx, 0, None)]
 
 
-def tuning_objective(t, ref, y, u, steps, cfg, Ts):
+def tuning_objective(t, ref, y, u, steps, cfg, Ts, diverged=None):
     """Scalar cost used to tune BOTH controllers (lower is better).
 
     J = w_itae_pitch*ITAE_pitch + w_itae_yaw*ITAE_yaw
       + w_tv * (TV(u_pitch) + TV(u_yaw))
       + w_overshoot * sum_steps max(0, OS% - allowance)
-      + divergence_penalty  (pitch beyond +-limit, yaw error beyond limit, or blow-up)
+      + divergence_penalty  (pitch beyond +-limit, yaw error beyond limit, blow-up,
+                             a member flagged in ``diverged``, or a non-finite J)
 
     ITAE uses tau = time since the latest reference change, so error that
     persists (slow drift, limit cycles) costs far more than a fast transient.
 
-    Shapes: t (T,), ref (T, 2), y/u (T, 2, B). Returns (B,).
+    Shapes: t (T,), ref (T, 2), y/u (T, 2, B), diverged (B,) bool. Returns (B,).
     """
     if y.ndim == 2:
         y, u = y[..., None], u[..., None]
@@ -114,12 +135,21 @@ def tuning_objective(t, ref, y, u, steps, cfg, Ts):
     J = J + cfg["w_tv"] * np.sum(np.abs(np.diff(u, axis=0)), axis=(0, 1))
     for s in steps:
         m = _seg(t, s)
+        if not m.any() or s["step_size"] == 0:
+            continue
         yi = y[m, s["axis_index"]]
         os = np.maximum(0.0, np.max(np.sign(s["step_size"]) * (yi - s["r_to"]), axis=0))
         os_pct = 100.0 * os / abs(s["step_size"])
         J = J + cfg["w_overshoot"] * np.maximum(0.0, os_pct - cfg["overshoot_allowance_pct"])
-    bad = ~np.all(np.isfinite(y), axis=(0, 1)) \
-        | np.any(np.abs(y[:, 0]) > cfg["divergence_pitch_limit"], axis=0) \
-        | np.any(np.abs(e[:, 1]) > cfg["divergence_yaw_error_limit"], axis=0)
+    with np.errstate(invalid="ignore"):
+        bad = ~np.all(np.isfinite(y), axis=(0, 1)) \
+            | ~np.all(np.isfinite(u), axis=(0, 1)) \
+            | ~np.isfinite(J) \
+            | np.any(np.abs(y[:, 0]) > cfg["divergence_pitch_limit"], axis=0) \
+            | np.any(np.abs(e[:, 1]) > cfg["divergence_yaw_error_limit"], axis=0)
+    if diverged is not None:
+        bad = bad | np.asarray(diverged, bool)
+    # BUG FIX: a non-finite J used to be replaced by 0 (a perfect score) WITHOUT the
+    # penalty when y stayed finite, so a NaN candidate could win the optimisation.
     J = np.where(np.isfinite(J), J, 0.0)
     return np.where(bad, J + cfg["divergence_penalty"], J)
