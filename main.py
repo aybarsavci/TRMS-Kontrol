@@ -38,7 +38,9 @@ def parse_args():
                     help="force re-optimisation even if valid cached parameters exist")
     ap.add_argument("--quick", action="store_true", help="reduced search budget (smoke test)")
     ap.add_argument("--settings", default=str(ROOT / "config" / "settings.yaml"))
-    ap.add_argument("--cache", default=str(ROOT / "config" / "tuned_parameters.json"))
+    ap.add_argument("--cache", default=None,
+                    help="cache file (default config/tuned_parameters.json, "
+                         "or config/tuned_parameters_quick.json with --quick)")
     ap.add_argument("--output-root", default=None, help="override output.root from settings")
     return ap.parse_args()
 
@@ -56,7 +58,9 @@ def main():
     x0 = rest_state(p)
     sc_tune = Scenario.from_config("tuning", cfg["scenarios"]["tuning"], x0)
     sc_eval = Scenario.from_config("evaluation", cfg["scenarios"]["evaluation"], x0)
-    cache = ParameterCache(args.cache)
+    # --quick results live in their own file so they never overwrite the full-budget cache
+    default_cache = "tuned_parameters_quick.json" if args.quick else "tuned_parameters.json"
+    cache = ParameterCache(args.cache or (ROOT / "config" / default_cache))
     base_sig = {"model": p.to_dict(), "simulation": sim, "objective": obj,
                 "tuning_scenario": cfg["scenarios"]["tuning"]}
 

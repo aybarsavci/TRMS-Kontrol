@@ -19,3 +19,6 @@ jit_*
 Thumbs.db
 .vscode/
 .idea/
+
+# quick smoke-test cache
+config/tuned_parameters_quick.json
