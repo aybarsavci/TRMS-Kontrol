@@ -106,11 +106,13 @@ def main():
         t0 = time.time()
         df = run_closed_loop(ctrl, sc_eval, p, Ts, nsub)
         print(f"[{name}] {len(df)} samples in {time.time() - t0:.1f}s")
-        sdf, g = controller_metrics(df, steps, Ts)
+        sdf, g = controller_metrics(df, steps, Ts, u_limits=(p.u_min, p.u_max))
         folder = run_dir / name
-        preds = getattr(ctrl, "predictions", None)
-        write_controller_folder(folder, name, df, sdf, g, ctrl.describe(), entry_by_name[name], preds)
-        plot_single_run(df, name, folder, steps, envelope=env, predictions=preds)
+        pred_arrays = ctrl.prediction_arrays() if hasattr(ctrl, "prediction_arrays") else None
+        write_controller_folder(folder, name, df, sdf, g, ctrl.describe(), entry_by_name[name],
+                                pred_arrays)
+        plot_single_run(df, name, folder, steps, envelope=env,
+                        predictions=getattr(ctrl, "predictions", None))
         plot_convergence(entry_by_name[name]["tuning_report"].get("convergence_history"), name, folder)
         dfs[name], step_tables[name], globals_[name] = df, sdf, g
 

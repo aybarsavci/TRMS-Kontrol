@@ -5,11 +5,12 @@ on the SAME tuning scenario, which is deliberately different from the evaluation
 scenario so neither controller is scored on the exact trajectory it was fitted to.
 
 * PID:   scipy differential evolution over log10 of the six gains. The whole
-         population is simulated in one vectorised pass (``simulate_pid_batch``),
-         which is ~50x faster than evaluating members one by one.
+         population is simulated in one vectorised pass (``simulate_pid_batch``):
+         numpy PID update + one ``Function.map`` plant call per sample.
 * N-MPC: scipy differential evolution over log10 of the Q/R weights and the
          integer prediction horizon N (``integrality``). Each candidate runs a
-         full closed-loop IPOPT simulation; candidates run in parallel processes.
+         full closed-loop IPOPT simulation; candidates run in parallel processes,
+         and each process reuses one solver per horizon N (weights are NLP parameters).
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from scipy.optimize import differential_evolution
 from .controllers.nmpc import WEIGHT_NAMES, NMPCController
 from .controllers.pid import GAIN_NAMES
 from .metrics import tuning_objective
+from .model import Plant
 from .params import TRMSParams
 from .simulation import simulate_pid_batch
 
@@ -34,11 +36,13 @@ def tune_pid(p, scenario, sim_cfg, obj_cfg, pid_cfg, verbose=True):
     de = pid_cfg["de"]
     history, nfev = [], [0]
 
+    plant = Plant(p, Ts, nsub)                         # built once, reused by every generation
+
     def obj(theta):                                    # theta (6, S)
         gains = 10.0 ** np.atleast_2d(theta.T).T
-        t, ref, y, u = simulate_pid_batch(gains, scenario, p, Ts, nsub, tf)
+        t, ref, y, u, diverged = simulate_pid_batch(gains, scenario, p, Ts, nsub, tf, plant=plant)
         nfev[0] += gains.shape[1]
-        return tuning_objective(t, ref, y, u, steps, obj_cfg, Ts)
+        return tuning_objective(t, ref, y, u, steps, obj_cfg, Ts, diverged=diverged)
 
     def cb(intermediate_result):
         history.append(float(intermediate_result.fun))
@@ -68,26 +72,35 @@ def nmpc_theta_to_params(theta, nmpc_cfg):
 
 
 def run_nmpc_scenario(p, scenario, Ts, nsub, weights, N, nmpc_cfg, obj_cfg=None):
-    """Lightweight closed loop (no telemetry) used inside the tuner."""
-    from .model import rk4_np
+    """Lightweight closed loop (no telemetry) used inside the tuner.
+
+    Returns t, ref, Y, U, diverged. The NLP/solver for this horizon N comes from the
+    per-process cache in ``nmpc._build_solver`` (weights are NLP parameters), so a
+    worker builds each horizon once instead of once per candidate.
+    """
     ctrl = NMPCController(p, Ts, N, weights, nmpc_cfg["terminal_weight"],
                           nmpc_cfg["prediction_substeps"], nmpc_cfg["reference_preview"],
                           nmpc_cfg.get("ipopt"), store_predictions=False)
+    plant = Plant(p, Ts, nsub)
     n = int(round(scenario.duration / Ts))
     t = np.arange(n) * Ts
     ref = scenario.reference(t).T
     x = scenario.x0.copy()
-    ctrl.reset(x)
-    Y = np.full((n, 2), np.nan)
+    ctrl.reset(x, n_steps=n)
+    Y = np.empty((n, 2))
     U = np.zeros((n, 2))
+    diverged = False
     for k in range(n):
         u, _ = ctrl.step(t[k], x, ref[k], scenario.reference)
         Y[k], U[k] = x[[0, 3]], u
-        x = rk4_np(x[:, None], u[:, None], Ts, p, nsub)[:, 0]
+        x = plant.step(x, u)
         if not np.all(np.isfinite(x)) or (obj_cfg and abs(x[0]) > obj_cfg["divergence_pitch_limit"]):
+            # BUG FIX: the state that crossed the limit was never stored, so the
+            # recorded trajectory stayed inside the limits and escaped the penalty.
+            diverged = True
             Y[k + 1:] = Y[k]
             break
-    return t, ref, Y, U
+    return t, ref, Y, U, diverged
 
 
 def _nmpc_objective(theta, ctx):
@@ -96,8 +109,9 @@ def _nmpc_objective(theta, ctx):
     sc = Scenario(**ctx["scenario"])
     w, N = nmpc_theta_to_params(theta, ctx["nmpc"])
     try:
-        t, ref, y, u = run_nmpc_scenario(p, sc, ctx["Ts"], ctx["nsub"], w, N, ctx["nmpc"], ctx["obj"])
-        J = float(tuning_objective(t, ref, y, u, sc.steps(), ctx["obj"], ctx["Ts"])[0])
+        t, ref, y, u, div = run_nmpc_scenario(p, sc, ctx["Ts"], ctx["nsub"], w, N, ctx["nmpc"], ctx["obj"])
+        J = float(tuning_objective(t, ref, y, u, sc.steps(), ctx["obj"], ctx["Ts"],
+                                   diverged=np.array([div]))[0])
     except Exception as exc:  # solver build/runtime failure -> heavily penalised
         print(f"  [N-MPC] candidate failed: {exc}", flush=True)
         J = ctx["obj"]["divergence_penalty"] * 10

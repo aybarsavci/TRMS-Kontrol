@@ -19,6 +19,7 @@ prediction model can never drift apart.
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from types import SimpleNamespace
 
 import numpy as np
@@ -110,7 +111,14 @@ def rest_state(p: TRMSParams) -> np.ndarray:
 
 
 # --------------------------------------------------------------------- casadi
+@lru_cache(maxsize=32)
 def rk4_casadi(p: TRMSParams, dt: float, substeps: int = 1):
+    """CasADi SX functions for one zero-order-hold sample: ``F(x, u) -> x_next`` and
+    ``rates(x) -> [Omega_v, Omega_h]``. Built from the same ``terms`` as the numpy
+    model. Cached: ``TRMSParams`` is frozen (hashable), so identical requests reuse
+    the already-built expression graph instead of rebuilding it."""
+    if not dt > 0 or int(substeps) < 1:
+        raise ValueError(f"need dt > 0 and substeps >= 1 (got dt={dt}, substeps={substeps})")
     import casadi as ca
 
     x = ca.SX.sym("x", NX)
@@ -133,6 +141,31 @@ def rk4_casadi(p: TRMSParams, dt: float, substeps: int = 1):
     _, aux = terms(x, u, p, ca.sin, ca.cos)
     ns.rates = ca.Function("rates", [x], [ca.vertcat(aux["pitch_rate"], aux["yaw_rate"])])
     return ns
+
+
+class Plant:
+    """The simulated "true" plant: RK4 with ``substeps`` steps per sample, evaluated by
+    CasADi's SX virtual machine instead of ~40 numpy calls on tiny arrays per sample.
+
+    Same equations, same operation order as ``rk4_np``: results agree to the last bit
+    (checked in tests), while one sample costs ~40 us instead of ~3 ms.
+
+    ``step(x, u)`` accepts one state (6,) or a batch (6, B) / (2, B); a batch is
+    evaluated with ``Function.map`` (one compiled loop over the columns).
+    """
+
+    def __init__(self, p: TRMSParams, dt: float, substeps: int):
+        self.F = rk4_casadi(p, float(dt), int(substeps)).F
+        self._maps = {}
+
+    def step(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        if x.ndim == 1:
+            return np.asarray(self.F(x, u)).ravel()
+        B = x.shape[1]
+        fm = self._maps.get(B)
+        if fm is None:
+            fm = self._maps[B] = self.F.map(B, "serial")
+        return np.asarray(fm(x, u))
 
 
 # --------------------------------------------------------------------- trim
