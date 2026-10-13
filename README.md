@@ -235,7 +235,7 @@ These come from a full-budget run: `python main.py --retune all`, then a cached 
 | Mean overshoot pitch / yaw [%] | 44.4 / 0.2 | 0.6 / 2.6 |
 | Control effort ∫u² | 25.4 | 33.7 |
 | Input total variation | 11.0 | 44.6 |
-| Compute time mean / max [ms] (Ts = 50 ms) | 0.13 / 13 | 15 / 255 |
+| Compute time mean / max [ms] (Ts = 50 ms) | 0.13 / < 15 | 16 / 170–310 (varies by run) |
 
 **Tuned parameters** (in `config/tuned_parameters.json`):
 
@@ -259,8 +259,9 @@ These come from a full-budget run: `python main.py --retune all`, then a cached 
 * **Cross-coupling.** Each yaw step disturbs the N-MPC's pitch by up to about 17°. This is the
   tail rotor's reaction torque, which acts directly on pitch rate. It is reported per step as
   `cross_coupling_peak_dev_deg`.
-* **Real-time margin.** IPOPT averages 15 ms per 50 ms sample but occasionally needs up
-  to 255 ms. In this run, 1.5 % of samples exceeded the budget
+* **Real-time margin.** IPOPT averages about 16 ms per 50 ms sample, but its slowest
+  sample took 170–310 ms in repeated runs (wall-clock time varies; trajectories and
+  iteration counts are identical). In each run, 1.5 % of samples exceeded the budget
   (`realtime_budget_exceeded_fraction` in `global_metrics.json`).
   Real-time use on hardware would need a capped iteration count or a real-time
   iteration scheme.
