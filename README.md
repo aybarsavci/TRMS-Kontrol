@@ -28,6 +28,8 @@ python main.py --retune pid    # re-optimise only the PID (or: --retune nmpc)
 python main.py --quick         # small search budget, for a smoke test only
 python main.py --controllers nmpc   # only the N-MPC (no PID, no comparison files)
 python tests/test_core.py      # regression tests (or: python -m pytest tests/)
+python -m studies.horizon_sweep   # N-MPC: effect of the prediction horizon (§9)
+python -m studies.robustness      # N-MPC: robustness to model mismatch (§9)
 ```
 
 The cached parameters are reused only while their **signature** still matches. The
@@ -64,6 +66,10 @@ TRMS-Kontrol/
 │   ├── plotting.py              per-controller and comparison figures
 │   └── reporting.py             CSV / JSON / NPZ / Excel / Markdown writers
 ├── tests/test_core.py           regression tests (bit-identical plant, bug fixes, cache)
+├── studies/
+│   ├── common.py                shared set-up (settings, cached parameters, one N-MPC run)
+│   ├── horizon_sweep.py         N-MPC prediction-horizon study
+│   └── robustness.py            N-MPC model-mismatch study
 └── docs/results/                figures and summary from the reference run
 ```
 
@@ -316,7 +322,50 @@ These come from a full-budget run: `python main.py --retune all`, then a cached 
 * The PID is a pure decentralised PID, as specified. It has no gravity
   feed-forward or gain scheduling, which are the usual TRMS additions.
 
-## 9. Version control
+## 9. N-MPC studies
+
+Two stand-alone studies look deeper at the N-MPC. Both reuse the cached tuned
+parameters and the evaluation scenario, change one thing, and write a CSV, a
+Markdown table and figures to `outputs/studies/<study>_<stamp>/`. `--publish` also
+copies them to `docs/results/studies/`, where the reference results below live.
+
+### Prediction horizon (`python -m studies.horizon_sweep`)
+
+The tuned weights stay fixed and only N changes.
+
+| N (horizon) | Result | IAE pitch / yaw [rad·s] | Mean solve [ms] |
+|---|---|---|---|
+| 10, 15, 20 (≤ 1.0 s) | yaw runs away (diverged) | – | 4–7 |
+| 25 (1.25 s) | stable, every step settles | 3.23 / 2.00 | ≈ 7 |
+| 30 (1.5 s) | stable | 2.09 / 1.92 | ≈ 7.5 |
+| **38 (1.9 s, tuned)** | stable | **1.88 / 1.87** | ≈ 8 |
+| 50 (2.5 s) | stable | 1.82 / 1.85 | ≈ 9 |
+
+The controller has to see about 1.25 s ahead, roughly the main motor's 1.4 s lag,
+before it can hold the beam. Beyond the tuned N = 38 the gain is about 3 % for
+roughly 12 % more solve time.
+
+![Horizon trade-off](docs/results/studies/horizon_sweep_tradeoff.png)
+
+### Model mismatch (`python -m studies.robustness`)
+
+The N-MPC keeps its nominal model while the simulated plant is perturbed.
+
+* **Dynamic mismatch is harmless.** Beam inertia ±20 %, friction ×2 and a 30 % slower
+  main motor change the total IAE by at most +12 %, and every step still settles.
+* **Static-gain mismatch leaves an offset.** Rotor thrust ±15 % or a 5 % heavier
+  counterweight shift the steady state. The controller has no integral action
+  or disturbance estimate, so it settles next to the reference instead of on it. No step
+  settles within 2 %, and the total IAE rises ×1.8 (thrust) to ×4.1 (counterweight).
+* **Paper's tail coefficient.** With the printed 0.8080, the loop falls into a sustained
+  oscillation. This supports the 0.0801 correction in §4.
+
+Offset-free MPC (an augmented disturbance state estimated from the measurements) is
+the standard fix and the natural next step.
+
+![Robustness](docs/results/studies/robustness_iae.png)
+
+## 10. Version control
 
 These are the commands used to publish this project to
 <https://github.com/aybarsavci/TRMS-Kontrol>:
