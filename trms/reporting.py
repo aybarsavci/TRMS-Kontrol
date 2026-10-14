@@ -79,6 +79,25 @@ def write_controller_folder(folder: Path, name, df, sdf, g, describe, tuning_ent
         + "*.png                    figures\n")
 
 
+def step_tables_long_and_wide(step_tables: dict):
+    """Per-step metrics of every controller in long form and side by side (one row per step).
+
+    Works for any number of controllers, including one (the N-MPC-only summary).
+    """
+    names = list(step_tables)
+    step_df = pd.concat([sdf.assign(controller=n, step_id=np.arange(len(sdf)))
+                         for n, sdf in step_tables.items()], ignore_index=True)
+    lead = ["controller", "step_id", "axis", "t_start", "r_from", "r_to"]
+    step_df = step_df[lead + [c for c in step_df.columns if c not in lead]]
+    vals = ["overshoot_pct", "settling_time_2pct_s", "rise_time_10_90_s",
+            "steady_state_error", "IAE", "cross_coupling_peak_dev_deg"]
+    wide = step_df.pivot(index="step_id", columns="controller", values=vals)
+    wide.columns = [f"{m}__{c}" for m, c in wide.columns]
+    info = step_df[step_df["controller"] == names[0]].set_index("step_id")[["axis", "t_start", "r_from", "r_to"]]
+    wide = info.join(wide).reset_index()
+    return step_df, wide
+
+
 def write_comparison(root: Path, dfs: dict, step_tables: dict, globals_: dict, params_doc: dict):
     names = list(dfs)
     # merged time series
@@ -95,23 +114,12 @@ def write_comparison(root: Path, dfs: dict, step_tables: dict, globals_: dict, p
         merged = merged.merge(d, on="time", how="left")
     merged.to_csv(root / "comparison_timeseries.csv", index=False)
 
-    step_df = pd.concat([sdf.assign(controller=n, step_id=np.arange(len(sdf)))
-                         for n, sdf in step_tables.items()], ignore_index=True)
-    lead = ["controller", "step_id", "axis", "t_start", "r_from", "r_to"]
-    step_df = step_df[lead + [c for c in step_df.columns if c not in lead]]
+    step_df, wide = step_tables_long_and_wide(step_tables)
     step_df.to_csv(root / "comparison_step_metrics.csv", index=False)
 
     glob_df = pd.DataFrame(globals_).T
     glob_df.index.name = "controller"
     glob_df.T.to_csv(root / "comparison_global_metrics.csv")
-
-    # side-by-side step table: one row per step, metrics for each controller
-    vals = ["overshoot_pct", "settling_time_2pct_s", "rise_time_10_90_s",
-            "steady_state_error", "IAE", "cross_coupling_peak_dev_deg"]
-    wide = step_df.pivot(index="step_id", columns="controller", values=vals)
-    wide.columns = [f"{m}__{c}" for m, c in wide.columns]
-    info = step_df[step_df["controller"] == names[0]].set_index("step_id")[["axis", "t_start", "r_from", "r_to"]]
-    wide = info.join(wide).reset_index()
 
     with pd.ExcelWriter(root / "comparison.xlsx", engine="openpyxl") as xw:
         glob_df.T.to_excel(xw, sheet_name="global_metrics")
@@ -144,7 +152,7 @@ def write_summary(root: Path, glob_df, wide, params_doc, run_info):
             ("Input total variation (total)", "total_variation_u_total"),
             ("Saturated samples pitch [%]", "saturation_fraction_pitch"),
             ("Compute time mean / max [ms]", None)]
-    lines = ["# TRMS reference tracking: PID vs N-MPC", "",
+    lines = [f"# TRMS reference tracking: {' vs '.join(names)}", "",
              f"Run: `{run_info['run_dir']}`  ", f"Created: {run_info['created']}  ",
              f"Evaluation scenario: {run_info['scenario']}", "",
              "## Whole-run metrics (lower is better)", "",

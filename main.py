@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 import yaml
 
 from trms.cache import ParameterCache, signature
@@ -25,8 +26,8 @@ from trms.controllers.pid import PIDController
 from trms.model import pitch_envelope, rest_state
 from trms.params import TRMSParams
 from trms.plotting import plot_comparison, plot_convergence, plot_single_run
-from trms.reporting import (controller_metrics, write_comparison, write_controller_folder,
-                            write_summary)
+from trms.reporting import (controller_metrics, step_tables_long_and_wide, write_comparison,
+                            write_controller_folder, write_summary)
 from trms.scenario import Scenario
 from trms.simulation import run_closed_loop
 from trms.tuning import tune_nmpc, tune_pid
@@ -129,24 +130,16 @@ def main():
         dfs[name], step_tables[name], globals_[name] = df, sdf, g
 
     (run_dir / "settings_used.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
-    if len(controllers) < 2:
-        # a single controller has nothing to compare against: its own folder holds
-        # every telemetry file, metric and figure
-        name = next(iter(controllers))
-        g = globals_[name]
-        print(f"\n{name} only (comparison files are written when both controllers run):")
-        for k in ("IAE_pitch", "IAE_yaw", "RMSE_pitch", "RMSE_yaw",
-                  "mean_overshoot_pct_pitch", "mean_overshoot_pct_yaw",
-                  "steps_not_settled_pitch", "steps_not_settled_yaw",
-                  "effort_int_u2_total", "compute_time_mean_ms", "compute_time_max_ms"):
-            print(f"  {k:28s} {g[k]:.4g}")
-        print(f"All outputs written to: {run_dir}")
-        return
-
     params_doc = {"model": p.to_dict(), "settings": cfg,
                   "controllers": {n: c.describe() for n, c in controllers.items()}}
-    step_df, glob_df, wide = write_comparison(run_dir, dfs, step_tables, globals_, params_doc)
-    plot_comparison(dfs, step_df, glob_df, steps, run_dir)
+    if len(controllers) >= 2:
+        step_df, glob_df, wide = write_comparison(run_dir, dfs, step_tables, globals_, params_doc)
+        plot_comparison(dfs, step_df, glob_df, steps, run_dir)
+    else:
+        # a single controller has nothing to compare against: no comparison_* files,
+        # but the run still gets its summary.md (its own folder holds everything else)
+        glob_df = pd.DataFrame(globals_).T
+        _, wide = step_tables_long_and_wide(step_tables)
     write_summary(run_dir, glob_df, wide, params_doc,
                   {"run_dir": str(run_dir.relative_to(ROOT)) if run_dir.is_relative_to(ROOT) else str(run_dir),
                    "created": datetime.now().isoformat(timespec="seconds"),
