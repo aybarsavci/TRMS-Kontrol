@@ -74,7 +74,7 @@ def main():
         + markdown_table(show, {"horizon [s]": ".2f", "over budget": ".1%",
                                 "solve mean [ms]": ".1f", "solve max [ms]": ".0f"})
         + "\n\nSolve times are wall-clock and vary between runs and machines; "
-          "the trajectories and metrics are deterministic.\n")
+          "the trajectories and metrics are deterministic.\n", encoding="utf-8")
 
     # ---------------------------------------------------------- figures
     pick = sorted({horizons[0], N_tuned, horizons[-1]} | {h for h in horizons if h == 20})

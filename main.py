@@ -53,7 +53,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    cfg = yaml.safe_load(Path(args.settings).read_text())
+    cfg = yaml.safe_load(Path(args.settings).read_text(encoding="utf-8"))
     if args.quick:
         cfg = copy.deepcopy(cfg)
         cfg["pid"]["de"].update(cfg["quick"]["pid_de"])
@@ -129,7 +129,7 @@ def main():
         plot_convergence(entry_by_name[name]["tuning_report"].get("convergence_history"), name, folder)
         dfs[name], step_tables[name], globals_[name] = df, sdf, g
 
-    (run_dir / "settings_used.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+    (run_dir / "settings_used.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
     params_doc = {"model": p.to_dict(), "settings": cfg,
                   "controllers": {n: c.describe() for n, c in controllers.items()}}
     if len(controllers) >= 2:
@@ -145,7 +145,7 @@ def main():
                    "created": datetime.now().isoformat(timespec="seconds"),
                    "scenario": ", ".join(f"{a} {v:+.2f} rad @ {t:.0f}s" for a, t, v in sc_eval.events)})
 
-    print("\n" + (run_dir / "summary.md").read_text().split("## Per-step")[0])
+    print("\n" + (run_dir / "summary.md").read_text(encoding="utf-8").split("## Per-step")[0])
     print(f"All outputs written to: {run_dir}")
 
 

@@ -28,7 +28,7 @@ class ParameterCache:
         self.data = {}
         if self.path.exists():
             try:
-                self.data = json.loads(self.path.read_text())
+                self.data = json.loads(self.path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 print(f"[cache] {self.path} is unreadable; ignoring it.")
 
@@ -51,7 +51,7 @@ class ParameterCache:
         # half-written JSON that would silently discard every tuned result on next start.
         fd, tmp = tempfile.mkstemp(prefix=self.path.name + ".", suffix=".tmp", dir=self.path.parent)
         try:
-            with os.fdopen(fd, "w") as fh:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(self.data, indent=2, sort_keys=False))
                 fh.flush()
                 os.fsync(fh.fileno())

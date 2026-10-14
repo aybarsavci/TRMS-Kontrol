@@ -17,7 +17,7 @@ def _json(obj, path: Path):
         if isinstance(o, np.ndarray):
             return o.tolist()
         return str(o)
-    path.write_text(json.dumps(obj, indent=2, default=conv))
+    path.write_text(json.dumps(obj, indent=2, default=conv), encoding="utf-8")
 
 
 def controller_metrics(df, steps, Ts, u_limits=(-1.0, 1.0)):
@@ -76,7 +76,7 @@ def write_controller_folder(folder: Path, name, df, sdf, g, describe, tuning_ent
         "controller_parameters.json  final parameters + full tuning report (objective, history, bounds)\n"
         + ("nmpc_predictions.npz     predicted state/input trajectories at every sample (keys t, X, U, R)\n"
            if predictions is not None and len(predictions) else "")
-        + "*.png                    figures\n")
+        + "*.png                    figures\n", encoding="utf-8")
 
 
 def step_tables_long_and_wide(step_tables: dict):
@@ -180,4 +180,4 @@ def write_summary(root: Path, glob_df, wide, params_doc, run_info):
         lines.append(f"| {lab} | " + " | ".join(cells) + " |")
     lines += ["", "## Controller parameters", "", "```json",
               __import__("json").dumps(params_doc["controllers"], indent=2), "```", ""]
-    (root / "summary.md").write_text("\n".join(lines))
+    (root / "summary.md").write_text("\n".join(lines), encoding="utf-8")

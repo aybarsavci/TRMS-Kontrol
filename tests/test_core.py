@@ -28,7 +28,7 @@ from trms.params import TRMSParams  # noqa: E402
 from trms.reporting import controller_metrics  # noqa: E402
 from trms.scenario import Scenario  # noqa: E402
 
-CFG = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text())
+CFG = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
 P = TRMSParams()
 
 
@@ -113,7 +113,7 @@ def test_cache_write_is_atomic_and_roundtrips():
         c.put("pid", "sig", {"Kp_pitch": 1.0}, {"objective": 2.0})
         assert ParameterCache(path).get("pid", "sig")["params"]["Kp_pitch"] == 1.0
         assert [f.name for f in Path(d).iterdir()] == ["c.json"]      # no temp files left
-        assert json.loads(path.read_text())["pid"]["signature"] == "sig"
+        assert json.loads(path.read_text(encoding="utf-8"))["pid"]["signature"] == "sig"
 
 
 def test_nmpc_reuses_one_solver_per_horizon_and_shifts_warm_start():

@@ -93,7 +93,7 @@ def main():
         f"The N-MPC keeps the nominal model and the tuned weights (N = {N}); only the simulated "
         "plant changes. Evaluation scenario, full-state feedback, no noise. "
         "`IAE vs nominal` = total IAE divided by the nominal case.\n\n"
-        + markdown_table(show, {"IAE vs nominal": ".2f", "u_pitch saturated": ".1%"}) + "\n")
+        + markdown_table(show, {"IAE vs nominal": ".2f", "u_pitch saturated": ".1%"}) + "\n", encoding="utf-8")
 
     # ---------------------------------------------------------- figures
     labels = list(table.index)

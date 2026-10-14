@@ -40,8 +40,8 @@ REPORT_COLUMNS = [
 
 def load_setup(settings_path: Path | None = None, cache_path: Path | None = None) -> dict:
     """Settings, nominal parameters and the cached (full-budget) N-MPC parameters."""
-    cfg = yaml.safe_load(Path(settings_path or ROOT / "config" / "settings.yaml").read_text())
-    cache = json.loads(Path(cache_path or ROOT / "config" / "tuned_parameters.json").read_text())
+    cfg = yaml.safe_load(Path(settings_path or ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
+    cache = json.loads(Path(cache_path or ROOT / "config" / "tuned_parameters.json").read_text(encoding="utf-8"))
     if "nmpc" not in cache:
         raise SystemExit("No tuned N-MPC parameters in the cache: run `python main.py` first.")
     return {"cfg": cfg, "p": TRMSParams(), "nmpc": cache["nmpc"]["params"]}
