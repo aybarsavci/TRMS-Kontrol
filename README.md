@@ -30,6 +30,7 @@ python main.py --controllers nmpc   # only the N-MPC (no PID, no comparison file
 python tests/test_core.py      # regression tests (or: python -m pytest tests/)
 python -m studies.horizon_sweep   # N-MPC: effect of the prediction horizon (§9)
 python -m studies.robustness      # N-MPC: robustness to model mismatch (§9)
+python -m studies.animate_3d --open   # 3D replay of the latest run, spinning rotors (§9)
 ```
 
 The cached parameters are reused only while their **signature** still matches. The
@@ -69,7 +70,10 @@ TRMS-Kontrol/
 ├── studies/
 │   ├── common.py                shared set-up (settings, cached parameters, one N-MPC run)
 │   ├── horizon_sweep.py         N-MPC prediction-horizon study
-│   └── robustness.py            N-MPC model-mismatch study
+│   ├── robustness.py            N-MPC model-mismatch study
+│   ├── animate_3d.py            3D replay of a run (HTML page, works offline)
+│   ├── templates/trms_3d.html   page template for the 3D replay
+│   └── vendor/three.min.js      three.js r128 (MIT, see THREE_LICENSE.txt)
 └── docs/results/                figures and summary from the reference run
 ```
 
@@ -364,6 +368,21 @@ Offset-free MPC (an augmented disturbance state estimated from the measurements)
 the standard fix and the natural next step.
 
 ![Robustness](docs/results/studies/robustness_iae.png)
+
+### 3D replay (`python -m studies.animate_3d --open`)
+
+Builds `trms_3d.html` inside the latest run folder (or `--run <folder>`) and opens it.
+The page replays the simulated run in 3D:
+
+* the beam pitches and yaws as simulated, with a grey ghost at the reference attitude;
+* both propellers spin from the simulated rotor speeds, including the tail rotor reversing;
+* thrust arrows, input bars with a saturation flag, and a pitch/yaw chart you can click to seek;
+* a PID / N-MPC switch when the run contains both controllers.
+
+The rotors reach about 5,700 rpm (main) and 14,000 rpm (tail), faster than a 60 Hz screen
+can show (the blades would appear to stand still or run backwards). The blades are therefore
+drawn at 1/100, 1/50 or 1/20 of the real speed, and the real rpm is shown beside the scene.
+three.js is embedded in the page, so it works without an internet connection.
 
 ## 10. Version control
 
