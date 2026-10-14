@@ -13,7 +13,9 @@
   --muted: #8b95a3;
   --main: #f0a03c;     /* main rotor / pitch */
   --tail: #44b7d8;     /* tail rotor / yaw   */
-  --ref: #a7b0bd;      /* reference          */
+  --ref: #eef3f8;      /* target (reference) */
+  --ok: #5cc98b;       /* on target          */
+  --far: #ef6b5b;      /* off target         */
   --warn: #e0675a;
   --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
@@ -51,6 +53,18 @@ h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.35rem; mar
 .bar i { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; }
 .bar i.main { background: var(--main); } .bar i.tail { background: var(--tail); }
 .bar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.err { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.err div { display: grid; gap: 2px; }
+.err .big { font-family: var(--font-mono); font-size: 1.55rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.err .lab { color: var(--muted); font-size: .78rem; }
+.pill { justify-self: start; font-size: .8rem; font-weight: 500; padding: 3px 10px; border-radius: 999px; border: 1px solid currentColor; }
+.pill.ok { color: var(--ok); } .pill.far { color: var(--far); }
+.big.ok { color: var(--ok); } .big.far { color: var(--far); }
+.tag { position: absolute; left: 0; top: 0; pointer-events: none; transform: translate(-50%, -175%); white-space: nowrap;
+  font-family: var(--font-display); font-weight: 700; font-size: .78rem; letter-spacing: .1em; padding: 3px 8px; border-radius: 3px; }
+.tag.target { color: #0f1318; background: var(--ref); }
+.tag.gap { font-family: var(--font-mono); font-weight: 500; letter-spacing: 0; transform: translate(-50%, 70%); background: rgba(15,19,24,.82); border: 1px solid currentColor; }
+.tag.gap.ok { color: var(--ok); } .tag.gap.far { color: var(--far); }
 .sat { color: var(--warn); font-size: .72rem; font-family: var(--font-mono); visibility: hidden; }
 .sat.on { visibility: visible; }
 .transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
@@ -84,16 +98,26 @@ button.play { min-width: 92px; font-weight: 500; }
   <div class="top">
     <div class="stage" id="stage" aria-label="TRMS 3D görünümü. Sürükleyerek döndürün, tekerlekle yakınlaştırın.">
       <div class="clock" id="clock">t = 0.00 <span>s</span></div>
+      <div class="tag target" id="tagTarget">HEDEF</div>
+      <div class="tag gap" id="tagGap"></div>
       <div class="hint">Sürükle: döndür · Tekerlek: yakınlaştır · Boşluk: oynat/durdur</div>
     </div>
 
     <aside class="side">
       <div class="card">
+        <h2>Takip hatası (hedef − gerçek)</h2>
+        <div class="err">
+          <div><span class="lab">Pitch</span><span class="big" id="epitch">–</span></div>
+          <div><span class="lab">Yaw</span><span class="big" id="eyaw">–</span></div>
+        </div>
+        <span class="pill" id="status">–</span>
+      </div>
+      <div class="card">
         <h2>Açılar</h2>
         <div class="row"><span class="k">Pitch (gerçek)</span><span class="v main" id="pitch">–</span></div>
-        <div class="row"><span class="k">Pitch (referans)</span><span class="v" id="rpitch">–</span></div>
+        <div class="row"><span class="k">Pitch (hedef)</span><span class="v" id="rpitch">–</span></div>
         <div class="row"><span class="k">Yaw (gerçek)</span><span class="v tail" id="yaw">–</span></div>
-        <div class="row"><span class="k">Yaw (referans)</span><span class="v" id="ryaw">–</span></div>
+        <div class="row"><span class="k">Yaw (hedef)</span><span class="v" id="ryaw">–</span></div>
       </div>
       <div class="card">
         <h2>Rotorlar</h2>
@@ -131,7 +155,7 @@ button.play { min-width: 92px; font-weight: 500; }
       </select>
     </label>
     <span class="seg" id="ctrlseg" role="group" aria-label="Kontrolcü"></span>
-    <label for="showref"><input type="checkbox" id="showref" checked> Referans hayaleti</label>
+    <label for="showref"><input type="checkbox" id="showref" checked> Hedef kiriş</label>
     <label for="showthrust"><input type="checkbox" id="showthrust" checked> İtki okları</label>
     <button type="button" id="resetview">Görünümü sıfırla</button>
   </div>
@@ -140,7 +164,8 @@ button.play { min-width: 92px; font-weight: 500; }
     <div class="legend">
       <span><b style="background:var(--main)"></b>pitch</span>
       <span><b style="background:var(--tail)"></b>yaw</span>
-      <span><b style="background:var(--ref)"></b>referans (kesikli)</span>
+      <span><b style="background:var(--ref)"></b>hedef (kesikli)</span>
+      <span><b style="background:var(--far);opacity:.5;height:8px"></b>gölgeli alan = takip hatası</span>
       <span>Grafiğe tıklayarak zamana atlayın.</span>
     </div>
     <canvas id="strip" aria-label="Pitch ve yaw zaman grafiği"></canvas>
@@ -201,16 +226,24 @@ const DATA = /*__TRMS_DATA__*/null;
     const yawG = new THREE.Group(); yawG.position.y = PIVOT_Y; scene.add(yawG);
     const pitchG = new THREE.Group(); yawG.add(pitchG);
     if (ghost) {
-      const gm = new THREE.LineBasicMaterial({ color: 0xa7b0bd, transparent: true, opacity: 0.55 });
-      const pts = [new THREE.Vector3(-LT, 0, 0), new THREE.Vector3(LM, 0, 0)];
-      pitchG.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gm));
+      // the TARGET attitude: a translucent full-size beam, filled rotor discs and bright tips
+      const fill = new THREE.MeshBasicMaterial({ color: 0xeef3f8, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+      const edge = new THREE.LineBasicMaterial({ color: 0xeef3f8, transparent: true, opacity: 0.9 });
+      const gb = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, LM + LT, 16), fill);
+      gb.rotation.z = Math.PI / 2; gb.position.x = (LM - LT) / 2; pitchG.add(gb);
+      pitchG.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-LT, 0, 0), new THREE.Vector3(LM, 0, 0)]), edge));
       const ring = (x, r, rotX) => {
-        const c = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(
-          Array.from({ length: 48 }, (_, k) => new THREE.Vector3(r * Math.cos(k / 48 * 2 * Math.PI), 0, r * Math.sin(k / 48 * 2 * Math.PI)))), gm);
-        c.position.x = x; if (rotX) c.rotation.x = Math.PI / 2; pitchG.add(c);
+        const g = new THREE.Group(); g.position.x = x; if (rotX) g.rotation.x = Math.PI / 2;
+        g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(
+          Array.from({ length: 64 }, (_, k) => new THREE.Vector3(r * Math.cos(k / 64 * 2 * Math.PI), 0, r * Math.sin(k / 64 * 2 * Math.PI)))), edge));
+        const d = new THREE.Mesh(new THREE.CircleGeometry(r, 48), fill); d.rotation.x = -Math.PI / 2; g.add(d);
+        pitchG.add(g);
       };
-      ring(LM, 0.38, false); ring(-LT, 0.27, true);
-      return { yawG, pitchG };
+      ring(LM, 0.39, false); ring(-LT, 0.28, true);
+      const tipMat = new THREE.MeshBasicMaterial({ color: 0xeef3f8 });
+      const tipM = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12), tipMat); tipM.position.x = LM; pitchG.add(tipM);
+      const tipT = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), tipMat); tipT.position.x = -LT; pitchG.add(tipT);
+      return { yawG, pitchG, tipM, tipT };
     }
     // beam + pivot block + counterweight
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, LM + LT, 16), metal);
@@ -234,16 +267,37 @@ const DATA = /*__TRMS_DATA__*/null;
       disc.rotation.x = -Math.PI / 2; g.add(disc);
       return { g, prop, disc };
     }
+    const tipM = new THREE.Object3D(); tipM.position.x = LM; pitchG.add(tipM);
+    const tipT = new THREE.Object3D(); tipT.position.x = -LT; pitchG.add(tipT);
     const main = rotor(0.36, mainC, true); main.g.position.x = LM; pitchG.add(main.g);            // axis = beam normal (lifts the beam)
     const tail = rotor(0.25, tailC, false); tail.g.position.x = -LT; tail.g.rotation.x = Math.PI / 2; pitchG.add(tail.g); // axis horizontal (turns the beam)
 
     const arrowMain = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(LM, 0.08, 0), 0.5, 0xf0a03c, 0.12, 0.08);
     const arrowTail = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(-LT, 0, 0.08), 0.5, 0x44b7d8, 0.12, 0.08);
     pitchG.add(arrowMain, arrowTail);
-    return { yawG, pitchG, main, tail, arrowMain, arrowTail };
+    return { yawG, pitchG, main, tail, arrowMain, arrowTail, tipM, tipT };
   }
   const rig = buildBeam(false);
   const ghost = buildBeam(true);
+
+  // error links: a rod from each real beam tip to the matching target tip
+  const linkMat = new THREE.MeshBasicMaterial({ color: 0xef6b5b });
+  const mkLink = () => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 1, 8), linkMat); scene.add(m); return m; };
+  const linkM = mkLink(), linkT = mkLink();
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+  function setLink(m, from, to) {
+    from.getWorldPosition(_a); to.getWorldPosition(_b);
+    const len = _a.distanceTo(_b); m.visible = len > 0.01;
+    if (!m.visible) return;
+    m.position.copy(_a).add(_b).multiplyScalar(0.5); m.scale.set(1, len, 1);
+    m.quaternion.setFromUnitVectors(_up, _b.clone().sub(_a).normalize());
+  }
+  const _p = new THREE.Vector3();
+  function place(el, obj) {
+    obj.getWorldPosition(_p); _p.project(camera);
+    const vis = _p.z < 1 && Math.abs(_p.x) < 1.1 && Math.abs(_p.y) < 1.1; el.hidden = !vis; if (!vis) return;
+    el.style.left = ((_p.x + 1) / 2 * stage.clientWidth) + "px"; el.style.top = ((1 - _p.y) / 2 * stage.clientHeight) + "px";
+  }
 
   // ------------------------------------------------------------ camera (simple orbit)
   const target = new THREE.Vector3(0, 1.45, 0);
@@ -304,7 +358,12 @@ const DATA = /*__TRMS_DATA__*/null;
         for (let i = 0; i < n; i++) { const px = x(i * Ts), py = clip(y(arr[i])); i ? sctx.lineTo(px, py) : sctx.moveTo(px, py); }
         sctx.stroke();
       };
-      line(d[rk], css("--ref"), [4, 3], 1.2);
+      // shaded area between target and actual = tracking error
+      sctx.fillStyle = css("--far"); sctx.globalAlpha = 0.22; sctx.beginPath();
+      for (let i = 0; i < n; i++) { const px = x(i * Ts), py = clip(y(d[k][i])); i ? sctx.lineTo(px, py) : sctx.moveTo(px, py); }
+      for (let i = n - 1; i >= 0; i--) sctx.lineTo(x(i * Ts), clip(y(d[rk][i])));
+      sctx.closePath(); sctx.fill(); sctx.globalAlpha = 1;
+      line(d[rk], css("--ref"), [5, 3], 1.6);
       line(d[k], col, [], 1.6);
       sctx.setLineDash([]); sctx.fillStyle = col; sctx.textAlign = "left"; sctx.fillText(k, padL + 4, y0 + 8);
     });
@@ -334,6 +393,7 @@ const DATA = /*__TRMS_DATA__*/null;
   $("speed").onchange = (e) => { st.speed = +e.target.value; };
   $("spin").onchange = (e) => { st.spin = +e.target.value; };
   $("showref").onchange = (e) => { ghost.yawG.visible = e.target.checked; };
+  const showTarget = () => $("showref").checked;
   $("showthrust").onchange = (e) => { rig.arrowMain.visible = rig.arrowTail.visible = e.target.checked; };
   document.addEventListener("keydown", (e) => {
     if (e.code === "Space" && !/INPUT|SELECT|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); playBtn.click(); }
@@ -386,6 +446,20 @@ const DATA = /*__TRMS_DATA__*/null;
     };
     arrow(rig.arrowMain, fm, new THREE.Vector3(0, 1, 0));
     arrow(rig.arrowTail, ft, new THREE.Vector3(0, 0, 1));
+
+    const ep = (rp - pitch) * DEG, ey = (ry - yaw) * DEG, onTarget = Math.abs(ep) < 2 && Math.abs(ey) < 2;
+    linkMat.color.set(onTarget ? 0x5cc98b : 0xef6b5b);
+    setLink(linkM, rig.tipM, ghost.tipM); setLink(linkT, rig.tipT, ghost.tipT);
+    if (!showTarget()) linkM.visible = linkT.visible = false;
+    const tagT = $("tagTarget"), tagG = $("tagGap");
+    if (showTarget()) { place(tagT, ghost.tipM); } else tagT.hidden = true;
+    const gapDeg = Math.hypot(ep, ey);
+    if (showTarget() && gapDeg >= 0.5) {
+      place(tagG, rig.tipM); tagG.textContent = "hata " + gapDeg.toFixed(1) + "°"; tagG.className = "tag gap " + (onTarget ? "ok" : "far");
+    } else tagG.hidden = true;
+    const ec = (el, v) => { el.textContent = (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "°"; el.className = "big " + (Math.abs(v) < 2 ? "ok" : "far"); };
+    ec($("epitch"), ep); ec($("eyaw"), ey);
+    const pill = $("status"); pill.textContent = onTarget ? "Hedefte ✓ (±2° içinde)" : "Hedefte değil"; pill.className = "pill " + (onTarget ? "ok" : "far");
 
     $("clock").innerHTML = "t = " + st.t.toFixed(2) + " <span>s · " + ctrl + "</span>";
     $("pitch").textContent = fmtDeg(pitch); $("rpitch").textContent = fmtDeg(rp);
