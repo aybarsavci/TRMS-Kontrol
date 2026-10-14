@@ -6,6 +6,8 @@ Usage
     python main.py --retune all       # force re-optimisation of both controllers
     python main.py --retune pid       # force PID only (or: nmpc)
     python main.py --quick            # small search budget smoke test (cached separately)
+    python main.py --controllers nmpc # run only the N-MPC (no PID, no comparison files)
+    python main.py --controllers pid  # run only the PID
 """
 from __future__ import annotations
 
@@ -42,6 +44,9 @@ def parse_args():
                     help="cache file (default config/tuned_parameters.json, "
                          "or config/tuned_parameters_quick.json with --quick)")
     ap.add_argument("--output-root", default=None, help="override output.root from settings")
+    ap.add_argument("--controllers", nargs="+", choices=["pid", "nmpc"], default=["pid", "nmpc"],
+                    help="controllers to tune and simulate (default: both). The comparison "
+                         "files are written only when both are selected.")
     return ap.parse_args()
 
 
@@ -65,8 +70,11 @@ def main():
                 "tuning_scenario": cfg["scenarios"]["tuning"]}
 
     # ------------------------------------------------------------- tuning
+    selected = set(args.controllers)
     entries = {}
     for key, section, tuner in (("pid", "pid", tune_pid), ("nmpc", "nmpc", tune_nmpc)):
+        if key not in selected:
+            continue
         sig = signature({**base_sig, "controller": cfg[section]})
         cached = cache.get(key, sig)
         force = args.retune in (key, "all")
@@ -82,15 +90,19 @@ def main():
         entries[key] = cache.data[key]
         print(f"[{key.upper()}] done in {report['wall_time_s']:.0f}s, J = {report['objective']:.5f}")
 
-    pid_params = entries["pid"]["params"]
-    nmpc_params = entries["nmpc"]["params"]
-    controllers = {
-        "PID": PIDController(pid_params, Ts, cfg["pid"]["derivative_filter_tf"], p.u_min, p.u_max),
-        "N-MPC": NMPCController(p, Ts, nmpc_params["horizon_steps"], nmpc_params["weights"],
-                                cfg["nmpc"]["terminal_weight"], cfg["nmpc"]["prediction_substeps"],
-                                cfg["nmpc"]["reference_preview"], cfg["nmpc"].get("ipopt")),
-    }
-    entry_by_name = {"PID": entries["pid"], "N-MPC": entries["nmpc"]}
+    controllers, entry_by_name = {}, {}
+    if "pid" in selected:
+        pid_params = entries["pid"]["params"]
+        controllers["PID"] = PIDController(pid_params, Ts, cfg["pid"]["derivative_filter_tf"],
+                                           p.u_min, p.u_max)
+        entry_by_name["PID"] = entries["pid"]
+    if "nmpc" in selected:
+        nmpc_params = entries["nmpc"]["params"]
+        controllers["N-MPC"] = NMPCController(
+            p, Ts, nmpc_params["horizon_steps"], nmpc_params["weights"],
+            cfg["nmpc"]["terminal_weight"], cfg["nmpc"]["prediction_substeps"],
+            cfg["nmpc"]["reference_preview"], cfg["nmpc"].get("ipopt"))
+        entry_by_name["N-MPC"] = entries["nmpc"]
 
     # ------------------------------------------------------------- outputs
     out_root = Path(args.output_root or (ROOT / cfg["output"]["root"]))
@@ -116,6 +128,21 @@ def main():
         plot_convergence(entry_by_name[name]["tuning_report"].get("convergence_history"), name, folder)
         dfs[name], step_tables[name], globals_[name] = df, sdf, g
 
+    (run_dir / "settings_used.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+    if len(controllers) < 2:
+        # a single controller has nothing to compare against: its own folder holds
+        # every telemetry file, metric and figure
+        name = next(iter(controllers))
+        g = globals_[name]
+        print(f"\n{name} only (comparison files are written when both controllers run):")
+        for k in ("IAE_pitch", "IAE_yaw", "RMSE_pitch", "RMSE_yaw",
+                  "mean_overshoot_pct_pitch", "mean_overshoot_pct_yaw",
+                  "steps_not_settled_pitch", "steps_not_settled_yaw",
+                  "effort_int_u2_total", "compute_time_mean_ms", "compute_time_max_ms"):
+            print(f"  {k:28s} {g[k]:.4g}")
+        print(f"All outputs written to: {run_dir}")
+        return
+
     params_doc = {"model": p.to_dict(), "settings": cfg,
                   "controllers": {n: c.describe() for n, c in controllers.items()}}
     step_df, glob_df, wide = write_comparison(run_dir, dfs, step_tables, globals_, params_doc)
@@ -124,7 +151,6 @@ def main():
                   {"run_dir": str(run_dir.relative_to(ROOT)) if run_dir.is_relative_to(ROOT) else str(run_dir),
                    "created": datetime.now().isoformat(timespec="seconds"),
                    "scenario": ", ".join(f"{a} {v:+.2f} rad @ {t:.0f}s" for a, t, v in sc_eval.events)})
-    (run_dir / "settings_used.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
 
     print("\n" + (run_dir / "summary.md").read_text().split("## Per-step")[0])
     print(f"All outputs written to: {run_dir}")

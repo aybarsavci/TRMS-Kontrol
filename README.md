@@ -26,6 +26,7 @@ python main.py                 # uses the cached tuned parameters (≈30 s)
 python main.py --retune all    # re-optimise both controllers, then simulate
 python main.py --retune pid    # re-optimise only the PID (or: --retune nmpc)
 python main.py --quick         # small search budget, for a smoke test only
+python main.py --controllers nmpc   # only the N-MPC (no PID, no comparison files)
 python tests/test_core.py      # regression tests (or: python -m pytest tests/)
 ```
 
