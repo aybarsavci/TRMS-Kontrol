@@ -372,17 +372,27 @@ the standard fix and the natural next step.
 ### 3D replay (`python -m studies.animate_3d --open`)
 
 Builds `trms_3d.html` inside the latest run folder (or `--run <folder>`) and opens it.
-The page replays the simulated run in 3D:
+The page is a presentation tool: it replays the simulated run and explains it.
 
-* the beam pitches and yaws as simulated, with a grey ghost at the reference attitude;
-* both propellers spin from the simulated rotor speeds, including the tail rotor reversing;
-* thrust arrows, input bars with a saturation flag, and a pitch/yaw chart you can click to seek;
-* a PID / N-MPC switch when the run contains both controllers.
+* **Side by side.** PID (left) and N-MPC (right) run on one timeline, each with the same
+  white target beam, so the difference is visible in one frame. A switch shows one
+  controller alone. A run made with `--controllers nmpc` gives an N-MPC-only page.
+* **Guided tour.** One chapter per reference step. Each chapter says what changes and
+  compares the controllers with numbers measured from this run: time to settle within
+  ±2° (and stay there for at least 1 s), overshoot, cross-coupling, remaining oscillation,
+  main-motor saturation. Playback stops at the end of every chapter. A summary
+  chapter compares the whole run.
+* **What the N-MPC sees.** The controller's own prediction at each sample
+  (`nmpc_predictions.npz`) is drawn as dots and fading beams 1.9 s ahead, and as a
+  dotted line ahead of the playhead in the chart.
+* **Live readouts.** The table shows on-target status, errors, accumulated error, rotor rpm
+  and inputs with a saturation flag. The chart has pitch, yaw and the accumulated
+  tracking error of both controllers.
 
 The rotors reach about 5,700 rpm (main) and 14,000 rpm (tail), faster than a 60 Hz screen
-can show (the blades would appear to stand still or run backwards). The blades are therefore
-drawn at 1/100, 1/50 or 1/20 of the real speed, and the real rpm is shown beside the scene.
-three.js is embedded in the page, so it works without an internet connection.
+can show, so the blades are drawn at 1/100, 1/50 or 1/20 of the real speed. The real rpm
+is shown in the table. three.js is embedded in the page, so it works without an internet
+connection. The page only replays the Python telemetry and computes nothing itself.
 
 ## 10. Version control
 

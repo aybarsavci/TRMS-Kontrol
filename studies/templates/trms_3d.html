@@ -1,177 +1,204 @@
-<title>TRMS 3D Simülasyonu</title>
+<title>TRMS 3D Karşılaştırma</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: lab-console instrument; 3D stage beside a readout column, transport + strip chart beneath.
-   Deliberately single dark theme (a test-rig monitor), every colour set explicitly. */
+/* Layout: test-rig monitor. 3D stage with the guided narrative beside it; transport, live
+   comparison table and strip chart beneath. Single dark look on purpose (a lab screen);
+   every colour is set explicitly. Controller identity = colour (PID lavender, N-MPC amber),
+   target = white, good/bad = green/red. */
 :root {
   --bg: #0f1318;
   --panel: #161c23;
+  --panel2: #1b222b;
   --line: #29323d;
   --fg: #e4e8ed;
-  --muted: #8b95a3;
-  --main: #f0a03c;     /* main rotor / pitch */
-  --tail: #44b7d8;     /* tail rotor / yaw   */
-  --ref: #eef3f8;      /* target (reference) */
-  --ok: #5cc98b;       /* on target          */
-  --far: #ef6b5b;      /* off target         */
-  --warn: #e0675a;
+  --muted: #8f99a7;
+  --pid: #b79cf0;
+  --nmpc: #f0a03c;
+  --ref: #eef3f8;
+  --ok: #5cc98b;
+  --far: #ef6b5b;
+  --pass: #e2c55a;
   --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --stageH: clamp(430px, 60vh, 680px);
   color-scheme: dark;
 }
 html, body { height: 100%; }
 body {
-  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px;
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.45;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 16px; box-sizing: border-box;
+  padding-block: 14px; box-sizing: border-box;
 }
-.app { max-width: 1400px; margin: 0 auto; display: grid; gap: 14px; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
-h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.35rem; margin: 0; letter-spacing: .01em; text-wrap: balance; }
-.sub { color: var(--muted); font-size: .85rem; }
-.top { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 14px; }
-.stage { position: relative; background: radial-gradient(120% 90% at 50% 20%, #1b232c 0%, var(--bg) 70%);
-  border: 1px solid var(--line); border-radius: 6px; min-height: 420px; height: 62vh; max-height: 640px; overflow: hidden; touch-action: none; cursor: grab; }
+*, *::before, *::after { box-sizing: inherit; }
+.app { max-width: 1480px; margin: 0 auto; display: grid; gap: 12px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.35rem; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); font-size: .82rem; flex: 1 1 260px; min-width: 0; }
+.top { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; }
+
+/* stage */
+.stage { position: relative; height: var(--stageH); background: radial-gradient(120% 90% at 50% 15%, #1c242e 0%, var(--bg) 72%);
+  border: 1px solid var(--line); border-radius: 6px; overflow: hidden; touch-action: none; cursor: grab; }
 .stage:active { cursor: grabbing; }
 .stage canvas { display: block; width: 100%; height: 100%; }
-.hint { position: absolute; left: 12px; bottom: 10px; color: var(--muted); font-size: .75rem; pointer-events: none; }
-.clock { position: absolute; left: 12px; top: 10px; font-family: var(--font-mono); font-size: 1.05rem; pointer-events: none; }
+.clock { position: absolute; left: 12px; top: 10px; font-family: var(--font-mono); font-size: 1.05rem; pointer-events: none; font-variant-numeric: tabular-nums; }
 .clock span { color: var(--muted); font-size: .8rem; }
-.side { display: grid; gap: 10px; align-content: start; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: grid; gap: 8px; }
-.card h2 { font-family: var(--font-display); font-weight: 500; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0; }
-.row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
-.row .k { color: var(--muted); font-size: .82rem; }
-.row .v { font-family: var(--font-mono); font-size: .95rem; }
-.v.main { color: var(--main); } .v.tail { color: var(--tail); }
-.v small { color: var(--muted); font-size: .75rem; }
-.bar { height: 6px; background: #0b0e12; border-radius: 3px; position: relative; overflow: hidden; }
-.bar i { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; }
-.bar i.main { background: var(--main); } .bar i.tail { background: var(--tail); }
-.bar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
-.err { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.err div { display: grid; gap: 2px; }
-.err .big { font-family: var(--font-mono); font-size: 1.55rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.err .lab { color: var(--muted); font-size: .78rem; }
-.pill { justify-self: start; font-size: .8rem; font-weight: 500; padding: 3px 10px; border-radius: 999px; border: 1px solid currentColor; }
-.pill.ok { color: var(--ok); } .pill.far { color: var(--far); }
-.big.ok { color: var(--ok); } .big.far { color: var(--far); }
-.tag { position: absolute; left: 0; top: 0; pointer-events: none; transform: translate(-50%, -175%); white-space: nowrap;
-  font-family: var(--font-display); font-weight: 700; font-size: .78rem; letter-spacing: .1em; padding: 3px 8px; border-radius: 3px; }
-.tag.target { color: #0f1318; background: var(--ref); }
-.tag.gap { font-family: var(--font-mono); font-weight: 500; letter-spacing: 0; transform: translate(-50%, 70%); background: rgba(15,19,24,.82); border: 1px solid currentColor; }
-.tag.gap.ok { color: var(--ok); } .tag.gap.far { color: var(--far); }
-.sat { color: var(--warn); font-size: .72rem; font-family: var(--font-mono); visibility: hidden; }
-.sat.on { visibility: visible; }
-.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
-.transport label { color: var(--muted); font-size: .82rem; display: inline-flex; align-items: center; gap: 6px; }
+.key { position: absolute; right: 10px; top: 10px; display: grid; gap: 3px; font-size: .74rem; color: var(--muted); pointer-events: none;
+  background: rgba(15,19,24,.72); border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; }
+.key i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+.hint { position: absolute; left: 12px; bottom: 10px; color: var(--muted); font-size: .74rem; pointer-events: none; }
+.rigtag { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); pointer-events: none; display: grid; justify-items: center; gap: 4px; }
+.rigtag b { font-family: var(--font-display); font-size: 1rem; letter-spacing: .06em; padding: 2px 10px; border-radius: 3px; color: #0f1318; }
+.rigtag .st { font-family: var(--font-mono); font-size: .8rem; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; background: rgba(15,19,24,.85); white-space: nowrap; }
+.st.ok { color: var(--ok); } .st.far { color: var(--far); } .st.pass { color: var(--pass); }
+.predtag { position: absolute; left: 0; top: 0; transform: translate(8px, -50%); pointer-events: none; font-family: var(--font-mono); font-size: .72rem; color: var(--nmpc); white-space: nowrap; }
+
+/* narrative */
+.story { height: var(--stageH); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 10px 8px; border-bottom: 1px solid var(--line); }
+.chips button { min-width: 34px; padding: 4px 8px; font-size: .8rem; }
+.chips button[aria-current="true"] { background: var(--fg); color: #0f1318; border-color: var(--fg); }
+.chips button.done::after { content: "✓"; margin-left: 4px; color: var(--ok); }
+.chips button[aria-current="true"].done::after { color: #0f1318; }
+.storybody { overflow-y: auto; padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
+.eyebrow { font-family: var(--font-display); font-weight: 500; font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.storybody h2 { font-family: var(--font-display); font-weight: 700; font-size: 1.12rem; margin: 0; text-wrap: balance; }
+.storybody p { margin: 0; }
+.res { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.res li { display: grid; grid-template-columns: 10px 1fr; gap: 8px; align-items: baseline; }
+.res li::before { content: ""; width: 10px; height: 10px; border-radius: 2px; background: var(--c, var(--muted)); transform: translateY(1px); }
+.takeaway { background: var(--panel2); border-left: 3px solid var(--fg); padding: 8px 10px; font-weight: 600; }
+.note { color: #cfd5dc; font-size: .9rem; }
+.watch { color: var(--muted); font-size: .86rem; }
+.watch b { color: var(--fg); font-weight: 500; }
+.concept { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; }
+.concept strong { font-family: var(--font-display); letter-spacing: .04em; }
+.legendlist { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+table.sum { border-collapse: collapse; width: 100%; font-size: .84rem; font-variant-numeric: tabular-nums; }
+table.sum th, table.sum td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+table.sum th { color: var(--muted); font-weight: 500; }
+.storynav { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); }
+.storynav button { flex: 1 1 0; }
+.storynav .primary { flex: 2 1 0; background: var(--fg); color: #0f1318; border-color: var(--fg); font-weight: 600; }
+.storynav button:disabled { opacity: .4; cursor: default; }
+
+/* controls */
 button, select { font: inherit; color: var(--fg); background: #1f2730; border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer; }
-button:hover, select:hover { border-color: #3c4856; }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--tail); outline-offset: 2px; }
-button.play { min-width: 92px; font-weight: 500; }
+button:hover, select:hover { border-color: #46535f; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--nmpc); outline-offset: 2px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .seg button { border: 0; border-radius: 0; background: transparent; }
-.seg button[aria-pressed="true"] { background: #2b3542; color: var(--fg); }
-#scrub { flex: 1 1 220px; min-width: 0; accent-color: var(--main); }
+.seg button[aria-pressed="true"] { background: #2d3743; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; }
+.transport label { color: var(--muted); font-size: .82rem; display: inline-flex; align-items: center; gap: 6px; }
+#play { min-width: 96px; font-weight: 600; }
+#scrub { flex: 1 1 200px; min-width: 0; accent-color: var(--fg); }
+
+/* live table */
+.livewrap { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+table.live { border-collapse: collapse; width: 100%; min-width: 860px; font-variant-numeric: tabular-nums; }
+table.live th, table.live td { padding: 7px 10px; text-align: left; white-space: nowrap; }
+table.live thead th { color: var(--muted); font-weight: 500; font-size: .76rem; border-bottom: 1px solid var(--line); }
+table.live tbody tr + tr td { border-top: 1px solid var(--line); }
+table.live td { font-family: var(--font-mono); font-size: .9rem; }
+td.name b { font-family: var(--font-display); letter-spacing: .05em; }
+.pill { display: inline-block; font-family: var(--font-body); font-size: .78rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid currentColor; }
+.pill.ok { color: var(--ok); } .pill.far { color: var(--far); } .pill.pass { color: var(--pass); }
+.ok { color: var(--ok); } .far { color: var(--far); }
+.cumbar { display: inline-block; width: 120px; height: 8px; background: #0b0e12; border-radius: 4px; vertical-align: middle; margin-right: 8px; position: relative; overflow: hidden; }
+.cumbar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
+.ubar { display: inline-block; width: 70px; height: 7px; background: #0b0e12; border-radius: 3px; vertical-align: middle; margin-right: 6px; position: relative; overflow: hidden; }
+.ubar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.ubar i { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; }
+.satflag { font-size: .7rem; color: var(--far); font-weight: 600; }
+
+/* strip chart */
 .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
-.chart canvas { display: block; width: 100%; height: 210px; cursor: pointer; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: .75rem; padding: 2px 2px 6px; }
-.legend b { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 5px; }
-.note { color: var(--muted); font-size: .78rem; line-height: 1.45; max-width: 70ch; }
-@media (max-width: 860px) {
+.chart canvas { display: block; width: 100%; height: 260px; cursor: pointer; touch-action: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: .76rem; padding: 2px 2px 6px; }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+.foot { color: var(--muted); font-size: .76rem; max-width: 90ch; margin: 0; }
+
+@media (max-width: 700px) { .key { display: none; } }
+@media (max-width: 1020px) {
   .top { grid-template-columns: minmax(0, 1fr); }
-  .stage { height: 52vh; min-height: 320px; }
-  .side { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .story { height: auto; }
+  .stage { height: clamp(340px, 56vh, 560px); }
 }
 </style>
 
 <div class="app">
   <header>
-    <h1>TRMS 3D Simülasyonu</h1>
+    <h1>TRMS 3D Karşılaştırma</h1>
     <span class="sub" id="subtitle"></span>
+    <span class="seg" id="viewseg" role="group" aria-label="Görünüm"></span>
   </header>
 
   <div class="top">
     <div class="stage" id="stage" aria-label="TRMS 3D görünümü. Sürükleyerek döndürün, tekerlekle yakınlaştırın.">
-      <div class="clock" id="clock">t = 0.00 <span>s</span></div>
-      <div class="tag target" id="tagTarget">HEDEF</div>
-      <div class="tag gap" id="tagGap"></div>
-      <div class="hint">Sürükle: döndür · Tekerlek: yakınlaştır · Boşluk: oynat/durdur</div>
+      <div class="clock" id="clock">t = 0,00 <span>s</span></div>
+      <div class="key" id="key">
+        <span><i style="border-color:var(--ref)"></i>beyaz kiriş = hedef açı</span>
+        <span><i style="border-color:var(--ok)"></i>/<i style="border-color:var(--far);margin-left:4px"></i>hata çubuğu: ±2° içinde / dışında</span>
+        <span><b style="color:var(--ok);font-weight:500">hedefte ✓</b> = en az 1 s ±2° içinde kaldı</span>
+        <span id="keypred"><i style="border-color:var(--nmpc);border-top-style:dashed"></i>N-MPC'nin tahmin ettiği yol</span>
+      </div>
+      <div class="hint">Sürükle: döndür · Tekerlek: yakınlaştır · Boşluk: oynat/durdur · ←/→: adımlar</div>
     </div>
 
-    <aside class="side">
-      <div class="card">
-        <h2>Takip hatası (hedef − gerçek)</h2>
-        <div class="err">
-          <div><span class="lab">Pitch</span><span class="big" id="epitch">–</span></div>
-          <div><span class="lab">Yaw</span><span class="big" id="eyaw">–</span></div>
-        </div>
-        <span class="pill" id="status">–</span>
+    <section class="story" aria-label="Rehberli anlatım">
+      <div class="chips" id="chips" role="group" aria-label="Bölümler"></div>
+      <div class="storybody" id="storybody" aria-live="polite"></div>
+      <div class="storynav">
+        <button type="button" id="prevch">◀ Önceki</button>
+        <button type="button" class="primary" id="mainbtn">Başla ▶</button>
+        <button type="button" id="nextch">Sonraki ▶</button>
       </div>
-      <div class="card">
-        <h2>Açılar</h2>
-        <div class="row"><span class="k">Pitch (gerçek)</span><span class="v main" id="pitch">–</span></div>
-        <div class="row"><span class="k">Pitch (hedef)</span><span class="v" id="rpitch">–</span></div>
-        <div class="row"><span class="k">Yaw (gerçek)</span><span class="v tail" id="yaw">–</span></div>
-        <div class="row"><span class="k">Yaw (hedef)</span><span class="v" id="ryaw">–</span></div>
-      </div>
-      <div class="card">
-        <h2>Rotorlar</h2>
-        <div class="row"><span class="k">Ana rotor hızı</span><span class="v main" id="wm">–</span></div>
-        <div class="row"><span class="k">Ana rotor itkisi</span><span class="v" id="fm">–</span></div>
-        <div class="row"><span class="k">Kuyruk rotor hızı</span><span class="v tail" id="wt">–</span></div>
-        <div class="row"><span class="k">Kuyruk rotor itkisi</span><span class="v" id="ft">–</span></div>
-      </div>
-      <div class="card">
-        <h2>Kontrol girişleri</h2>
-        <div class="row"><span class="k">u<sub>v</sub> ana motor</span><span class="v" id="uv">–</span></div>
-        <div class="bar"><i class="main" id="uvbar"></i></div>
-        <div class="sat" id="uvsat">SINIRDA (doygun)</div>
-        <div class="row"><span class="k">u<sub>h</sub> kuyruk motoru</span><span class="v" id="uh">–</span></div>
-        <div class="bar"><i class="tail" id="uhbar"></i></div>
-        <div class="sat" id="uhsat">SINIRDA (doygun)</div>
-      </div>
-    </aside>
+    </section>
   </div>
 
   <div class="transport">
-    <button class="play" id="play" type="button">▶ Oynat</button>
+    <button type="button" id="play">▶ Oynat</button>
     <input type="range" id="scrub" min="0" max="60" step="0.05" value="0" aria-label="Zaman">
     <label for="speed">Hız
       <select id="speed">
-        <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
-        <option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
+        <option value="0.25">0,25×</option><option value="0.5" selected>0,5×</option>
+        <option value="1">1×</option><option value="2">2×</option>
       </select>
     </label>
-    <label for="spin">Pervane görünümü
+    <label for="spin">Pervane
       <select id="spin">
         <option value="0.01">gerçek hızın 1/100'ü</option>
         <option value="0.02" selected>gerçek hızın 1/50'si</option>
         <option value="0.05">gerçek hızın 1/20'si</option>
       </select>
     </label>
-    <span class="seg" id="ctrlseg" role="group" aria-label="Kontrolcü"></span>
-    <label for="showref"><input type="checkbox" id="showref" checked> Hedef kiriş</label>
+    <label for="guided"><input type="checkbox" id="guided" checked> Her adımın sonunda dur</label>
+    <label for="showpred"><input type="checkbox" id="showpred" checked> N-MPC tahmini</label>
     <label for="showthrust"><input type="checkbox" id="showthrust" checked> İtki okları</label>
     <button type="button" id="resetview">Görünümü sıfırla</button>
   </div>
 
-  <div class="chart">
-    <div class="legend">
-      <span><b style="background:var(--main)"></b>pitch</span>
-      <span><b style="background:var(--tail)"></b>yaw</span>
-      <span><b style="background:var(--ref)"></b>hedef (kesikli)</span>
-      <span><b style="background:var(--far);opacity:.5;height:8px"></b>gölgeli alan = takip hatası</span>
-      <span>Grafiğe tıklayarak zamana atlayın.</span>
-    </div>
-    <canvas id="strip" aria-label="Pitch ve yaw zaman grafiği"></canvas>
+  <div class="livewrap">
+    <table class="live" aria-label="Anlık karşılaştırma">
+      <thead><tr>
+        <th>Kontrolcü</th><th>Durum</th><th>Pitch hatası</th><th>Yaw hatası</th>
+        <th>Birikmiş hata (∫|e| dt)</th><th>Ana rotor</th><th>Kuyruk rotoru</th><th>u<sub>v</sub> ana motor</th><th>u<sub>h</sub> kuyruk motoru</th>
+      </tr></thead>
+      <tbody id="livebody"></tbody>
+    </table>
   </div>
 
-  <p class="note" id="note"></p>
+  <div class="chart">
+    <div class="legend" id="chartlegend"></div>
+    <canvas id="strip" aria-label="Pitch, yaw ve birikmiş hata zaman grafiği; tıklayarak zamana atlayın"></canvas>
+  </div>
+
+  <p class="foot" id="foot"></p>
 </div>
 
 <script>
@@ -183,21 +210,38 @@ const DATA = /*__TRMS_DATA__*/null;
 (function () {
   const $ = (id) => document.getElementById(id);
   const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const DEG = 180 / Math.PI;
-  const names = Object.keys(DATA.controllers);
-  let ctrl = names.includes("N-MPC") ? "N-MPC" : names[0];
-  const Ts = DATA.Ts;
+  const DEG = 180 / Math.PI, Ts = DATA.Ts, BAND = DATA.band;
+  const NAMES = Object.keys(DATA.controllers);            // left to right: PID, N-MPC
+  const COLOR = { "PID": css("--pid"), "N-MPC": css("--nmpc") };
+  const HEX = { "PID": 0xb79cf0, "N-MPC": 0xf0a03c };
+  const CH = DATA.chapters, NCH = CH.length;
+  const num = (x, nd = 1) => x.toFixed(nd).replace(".", ",").replace(/^-(0(,0+)?)$/, "$1");
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
   // ------------------------------------------------------------ state
-  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const st = { t: 0, playing: !reduce, speed: 1, spin: 0.02, angMain: 0, angTail: 0 };
-  const D = () => DATA.controllers[ctrl];
-  const T = () => (D().t.length - 1) * Ts;
+  const st = { t: 0, playing: false, speed: 0.5, spin: 0.02, ch: -1, view: NAMES.length > 1 ? "both" : NAMES[0], done: new Set() };
+  const K = DATA.controllers[NAMES[0]].t.length;
+  const T = () => (K - 1) * Ts;
+  const visible = (n) => st.view === "both" || st.view === n;
+  // "on target" only after staying inside the band for HOLD seconds; passing through it does not count
+  const HOLD = 1.0, held = {};
+  NAMES.forEach((n) => {
+    const d = DATA.controllers[n], run = new Float32Array(K); let c = 0;
+    for (let i = 0; i < K; i++) {
+      const inside = Math.abs(d.rp[i] - d.pitch[i]) * DEG < BAND && Math.abs(d.ry[i] - d.yaw[i]) * DEG < BAND;
+      c = inside ? c + Ts : 0; run[i] = c;
+    }
+    held[n] = run;
+  });
+  const status = (n, ok) => {
+    if (!ok) return "far";
+    const k = Math.min(Math.max(Math.floor(st.t / Ts), 0), K - 1);
+    return held[n][k] >= HOLD - 1e-9 ? "ok" : "pass";
+  };
 
-  function sample(key) {
-    const a = D()[key], x = st.t / Ts, i = Math.min(Math.floor(x), a.length - 2), f = x - i;
-    if (i < 0) return a[0];
-    return a[i] + (a[i + 1] - a[i]) * Math.min(Math.max(f, 0), 1);
+  function sample(name, key) {
+    const a = DATA.controllers[name][key], x = st.t / Ts, i = Math.min(Math.max(Math.floor(x), 0), a.length - 2), f = Math.min(Math.max(x - i, 0), 1);
+    return a[i] + (a[i + 1] - a[i]) * f;
   }
 
   // ------------------------------------------------------------ scene
@@ -206,103 +250,118 @@ const DATA = /*__TRMS_DATA__*/null;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   stage.prepend(renderer.domElement);
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 100);
-
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 100);
   scene.add(new THREE.HemisphereLight(0xdfe8f2, 0x1a1f26, 0.85));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(3, 6, 4); scene.add(sun);
-  const grid = new THREE.GridHelper(6, 24, 0x2f3a46, 0x222a33); scene.add(grid);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(3, 6, 5); scene.add(sun);
+  scene.add(new THREE.GridHelper(10, 40, 0x2f3a46, 0x20272f));
 
   const M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.55, metalness: 0.35 }, o));
-  const metal = M(0x8c96a3), dark = M(0x2b323b), mainC = M(0xf0a03c, { metalness: 0.2 }), tailC = M(0x44b7d8, { metalness: 0.2 });
-
-  // geometry in metres x S (TRMS 33-220: l_m = 0.24 m, l_t = 0.25 m)
+  const metal = M(0x8c96a3), dark = M(0x2b323b);
   const S = 4, LM = DATA.geometry.l_m * S, LT = DATA.geometry.l_t * S, PIVOT_Y = 1.75;
 
-  // tower
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.62, 0.12, 40), dark); base.position.y = 0.06; scene.add(base);
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, PIVOT_Y - 0.1, 20), metal); post.position.y = (PIVOT_Y - 0.1) / 2 + 0.1; scene.add(post);
+  function buildRig(name) {
+    const root = new THREE.Group(); scene.add(root);
+    const colorMat = M(HEX[name], { metalness: 0.15 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.58, 0.12, 40), dark); base.position.y = 0.06; root.add(base);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.54, 0.02, 8, 48), colorMat); ring.rotation.x = Math.PI / 2; ring.position.y = 0.125; root.add(ring);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, PIVOT_Y - 0.1, 20), metal); post.position.y = (PIVOT_Y - 0.1) / 2 + 0.1; root.add(post);
 
-  function buildBeam(ghost) {
-    const yawG = new THREE.Group(); yawG.position.y = PIVOT_Y; scene.add(yawG);
+    const yawG = new THREE.Group(); yawG.position.y = PIVOT_Y; root.add(yawG);
     const pitchG = new THREE.Group(); yawG.add(pitchG);
-    if (ghost) {
-      // the TARGET attitude: a translucent full-size beam, filled rotor discs and bright tips
-      const fill = new THREE.MeshBasicMaterial({ color: 0xeef3f8, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
-      const edge = new THREE.LineBasicMaterial({ color: 0xeef3f8, transparent: true, opacity: 0.9 });
-      const gb = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, LM + LT, 16), fill);
-      gb.rotation.z = Math.PI / 2; gb.position.x = (LM - LT) / 2; pitchG.add(gb);
-      pitchG.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-LT, 0, 0), new THREE.Vector3(LM, 0, 0)]), edge));
-      const ring = (x, r, rotX) => {
-        const g = new THREE.Group(); g.position.x = x; if (rotX) g.rotation.x = Math.PI / 2;
-        g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(
-          Array.from({ length: 64 }, (_, k) => new THREE.Vector3(r * Math.cos(k / 64 * 2 * Math.PI), 0, r * Math.sin(k / 64 * 2 * Math.PI)))), edge));
-        const d = new THREE.Mesh(new THREE.CircleGeometry(r, 48), fill); d.rotation.x = -Math.PI / 2; g.add(d);
-        pitchG.add(g);
-      };
-      ring(LM, 0.39, false); ring(-LT, 0.28, true);
-      const tipMat = new THREE.MeshBasicMaterial({ color: 0xeef3f8 });
-      const tipM = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12), tipMat); tipM.position.x = LM; pitchG.add(tipM);
-      const tipT = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), tipMat); tipT.position.x = -LT; pitchG.add(tipT);
-      return { yawG, pitchG, tipM, tipT };
-    }
-    // beam + pivot block + counterweight
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, LM + LT, 16), metal);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, LM + LT, 16), metal);
     beam.rotation.z = Math.PI / 2; beam.position.x = (LM - LT) / 2; pitchG.add(beam);
-    const hubBlock = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), dark); pitchG.add(hubBlock);
+    pitchG.add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), dark));
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.55, 12), metal); arm.position.y = -0.275; pitchG.add(arm);
     const cw = new THREE.Mesh(new THREE.SphereGeometry(0.09, 24, 16), dark); cw.position.y = -0.58; pitchG.add(cw);
 
-    function rotor(r, mat, isMain) {
+    function rotor(r) {
       const g = new THREE.Group();
-      const shroud = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.03, r + 0.03, 0.12, 48, 1, true), M(0x3a434e, { side: THREE.DoubleSide, transparent: true, opacity: 0.55 }));
-      g.add(shroud);
+      g.add(new THREE.Mesh(new THREE.CylinderGeometry(r + 0.03, r + 0.03, 0.12, 48, 1, true), M(0x3a434e, { side: THREE.DoubleSide, transparent: true, opacity: 0.55 })));
       const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.16, 20), dark); motor.position.y = -0.09; g.add(motor);
       const prop = new THREE.Group(); g.add(prop);
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 16), mat); prop.add(hub);
+      prop.add(new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 16), colorMat));
       for (let k = 0; k < 2; k++) {
-        const b = new THREE.Mesh(new THREE.BoxGeometry(r * 0.95, 0.012, 0.07), mat);
+        const b = new THREE.Mesh(new THREE.BoxGeometry(r * 0.95, 0.012, 0.07), colorMat);
         b.position.x = (k ? -1 : 1) * r * 0.5; b.rotation.x = (k ? -1 : 1) * 0.28; prop.add(b);
       }
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(r * 0.98, 48), new THREE.MeshBasicMaterial({ color: isMain ? 0xf0a03c : 0x44b7d8, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(r * 0.98, 48), new THREE.MeshBasicMaterial({ color: HEX[name], transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
       disc.rotation.x = -Math.PI / 2; g.add(disc);
       return { g, prop, disc };
     }
+    const main = rotor(0.36); main.g.position.x = LM; pitchG.add(main.g);
+    const tail = rotor(0.25); tail.g.position.x = -LT; tail.g.rotation.x = Math.PI / 2; pitchG.add(tail.g);
     const tipM = new THREE.Object3D(); tipM.position.x = LM; pitchG.add(tipM);
     const tipT = new THREE.Object3D(); tipT.position.x = -LT; pitchG.add(tipT);
-    const main = rotor(0.36, mainC, true); main.g.position.x = LM; pitchG.add(main.g);            // axis = beam normal (lifts the beam)
-    const tail = rotor(0.25, tailC, false); tail.g.position.x = -LT; tail.g.rotation.x = Math.PI / 2; pitchG.add(tail.g); // axis horizontal (turns the beam)
-
-    const arrowMain = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(LM, 0.08, 0), 0.5, 0xf0a03c, 0.12, 0.08);
-    const arrowTail = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(-LT, 0, 0.08), 0.5, 0x44b7d8, 0.12, 0.08);
+    const arrowMain = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(LM, 0.08, 0), 0.5, HEX[name], 0.12, 0.08);
+    const arrowTail = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(-LT, 0, 0.08), 0.5, HEX[name], 0.12, 0.08);
     pitchG.add(arrowMain, arrowTail);
-    return { yawG, pitchG, main, tail, arrowMain, arrowTail, tipM, tipT };
-  }
-  const rig = buildBeam(false);
-  const ghost = buildBeam(true);
+    const anchor = new THREE.Object3D(); anchor.position.y = PIVOT_Y + 1.0; root.add(anchor);
 
-  // error links: a rod from each real beam tip to the matching target tip
-  const linkMat = new THREE.MeshBasicMaterial({ color: 0xef6b5b });
-  const mkLink = () => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 1, 8), linkMat); scene.add(m); return m; };
-  const linkM = mkLink(), linkT = mkLink();
-  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
-  function setLink(m, from, to) {
-    from.getWorldPosition(_a); to.getWorldPosition(_b);
-    const len = _a.distanceTo(_b); m.visible = len > 0.01;
-    if (!m.visible) return;
-    m.position.copy(_a).add(_b).multiplyScalar(0.5); m.scale.set(1, len, 1);
-    m.quaternion.setFromUnitVectors(_up, _b.clone().sub(_a).normalize());
+    // target (reference) beam on the same tower
+    const tYaw = new THREE.Group(); tYaw.position.y = PIVOT_Y; root.add(tYaw);
+    const tPitch = new THREE.Group(); tYaw.add(tPitch);
+    const fill = new THREE.MeshBasicMaterial({ color: 0xeef3f8, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
+    const edge = new THREE.LineBasicMaterial({ color: 0xeef3f8, transparent: true, opacity: 0.9 });
+    const gb = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, LM + LT, 16), fill); gb.rotation.z = Math.PI / 2; gb.position.x = (LM - LT) / 2; tPitch.add(gb);
+    tPitch.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-LT, 0, 0), new THREE.Vector3(LM, 0, 0)]), edge));
+    const tring = (x, r, vertical) => {
+      const g = new THREE.Group(); g.position.x = x; if (vertical) g.rotation.x = Math.PI / 2;
+      g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 64 }, (_, k) => new THREE.Vector3(r * Math.cos(k / 32 * Math.PI), 0, r * Math.sin(k / 32 * Math.PI)))), edge));
+      tPitch.add(g);
+    };
+    tring(LM, 0.39, false); tring(-LT, 0.28, true);
+    const tipMat = new THREE.MeshBasicMaterial({ color: 0xeef3f8 });
+    const ttM = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12), tipMat); ttM.position.x = LM; tPitch.add(ttM);
+    const ttT = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), tipMat); ttT.position.x = -LT; tPitch.add(ttT);
+
+    const linkMat = new THREE.MeshBasicMaterial({ color: 0xef6b5b });
+    const mkLink = () => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 1, 8), linkMat); scene.add(m); return m; };
+
+    const tag = document.createElement("div"); tag.className = "rigtag";
+    tag.innerHTML = `<b style="background:${COLOR[name]}">${name}</b><span class="st"></span>`;
+    stage.appendChild(tag);
+    return { name, root, yawG, pitchG, main, tail, tipM, tipT, arrowMain, arrowTail, anchor, tYaw, tPitch, ttM, ttT,
+             linkMat, linkM: mkLink(), linkT: mkLink(), tag, angMain: 0, angTail: 0, show: true };
   }
-  const _p = new THREE.Vector3();
-  function place(el, obj) {
-    obj.getWorldPosition(_p); _p.project(camera);
-    const vis = _p.z < 1 && Math.abs(_p.x) < 1.1 && Math.abs(_p.y) < 1.1; el.hidden = !vis; if (!vis) return;
-    el.style.left = ((_p.x + 1) / 2 * stage.clientWidth) + "px"; el.style.top = ((1 - _p.y) / 2 * stage.clientHeight) + "px";
-  }
+  const rigs = Object.fromEntries(NAMES.map((n) => [n, buildRig(n)]));
+
+  // N-MPC prediction: dashed path of the main-rotor tip over the horizon + fading future beams
+  const P = DATA.pred && rigs["N-MPC"] ? DATA.pred : null;
+  const pred = {};
+  if (P) {
+    const J = P.J;
+    const pathGeo = new THREE.BufferGeometry(); pathGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(J * 3), 3));
+    pred.path = new THREE.Line(pathGeo, new THREE.LineDashedMaterial({ color: 0xf0a03c, dashSize: 0.06, gapSize: 0.045 }));
+    pred.path.frustumCulled = false;
+    scene.add(pred.path);
+    const dotGeo = new THREE.SphereGeometry(0.032, 10, 8);
+    pred.dots = Array.from({ length: J }, (_, j) => {
+      const m = new THREE.Mesh(dotGeo, new THREE.MeshBasicMaterial({ color: 0xf0a03c, transparent: true, opacity: 0.95 - 0.6 * j / (J - 1) }));
+      m.frustumCulled = false; scene.add(m); return m;
+    });
+    const marks = [Math.round(J * 0.25), Math.round(J * 0.5), Math.round(J * 0.75), J - 1];
+    pred.ghosts = marks.map((j, i) => {
+      const y = new THREE.Group(); y.position.y = PIVOT_Y; const p = new THREE.Group(); y.add(p);
+      const op = 0.55 - i * 0.12;
+      const mat = new THREE.LineBasicMaterial({ color: 0xf0a03c, transparent: true, opacity: op });
+      p.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-LT, 0, 0), new THREE.Vector3(LM, 0, 0)]), mat));
+      const d = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf0a03c, transparent: true, opacity: Math.min(1, op + 0.3) }));
+      d.position.x = LM; p.add(d);
+      rigs["N-MPC"].root.add(y);
+      return { j, y, p, d };
+    });
+    pred.tag = document.createElement("div"); pred.tag.className = "predtag"; stage.appendChild(pred.tag);
+  } else { $("keypred").hidden = true; }
+  const predOn = () => P && visible("N-MPC") && $("showpred").checked;
 
   // ------------------------------------------------------------ camera (simple orbit)
   const target = new THREE.Vector3(0, 1.45, 0);
-  const orb = { th: 0.6, ph: 1.2, r: 4.3 };
-  const orbHome = { ...orb };
+  const orb = { th: 0.22, ph: 1.12, r: 7.6 };
+  function homeView() {
+    Object.assign(orb, st.view === "both" ? { th: 0.22, ph: 1.12, r: 7.6 } : { th: 0.55, ph: 1.2, r: 5.6 });
+    target.set(0, 1.45, 0);
+    placeCamera();
+  }
   function placeCamera() {
     camera.position.set(target.x + orb.r * Math.sin(orb.ph) * Math.sin(orb.th), target.y + orb.r * Math.cos(orb.ph), target.z + orb.r * Math.sin(orb.ph) * Math.cos(orb.th));
     camera.lookAt(target);
@@ -316,166 +375,347 @@ const DATA = /*__TRMS_DATA__*/null;
   });
   stage.addEventListener("pointerup", () => { drag = null; });
   stage.addEventListener("pointercancel", () => { drag = null; });
-  stage.addEventListener("wheel", (e) => { e.preventDefault(); orb.r = Math.min(Math.max(orb.r * (1 + Math.sign(e.deltaY) * 0.08), 2.2), 12); placeCamera(); }, { passive: false });
-  $("resetview").onclick = () => { Object.assign(orb, orbHome); placeCamera(); };
+  stage.addEventListener("wheel", (e) => { e.preventDefault(); orb.r = Math.min(Math.max(orb.r * (1 + Math.sign(e.deltaY) * 0.08), 2.2), 16); placeCamera(); }, { passive: false });
+  $("resetview").onclick = homeView;
+
+  function layoutRigs() {
+    const both = st.view === "both";
+    NAMES.forEach((n) => {
+      const r = rigs[n], show = visible(n);
+      r.show = show; r.root.visible = show; r.tag.hidden = !show;
+      if (!show) r.linkM.visible = r.linkT.visible = false;
+      r.root.position.x = both ? (n === "PID" ? -1.9 : 1.9) : 0;
+    });
+    if (P) { const on = predOn(); pred.path.visible = on; pred.dots.forEach((d) => (d.visible = on)); pred.ghosts.forEach((g) => (g.y.visible = on)); pred.tag.hidden = !on; }
+    homeView(); buildLegend(); renderLiveRows();
+  }
 
   function resize() {
     const w = stage.clientWidth, h = stage.clientHeight;
-    renderer.setSize(w, h, false); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix();
+    renderer.setSize(w, h, false); camera.aspect = w / Math.max(h, 1);
+    camera.fov = camera.aspect < 1 ? 58 : 38; camera.updateProjectionMatrix();
     sizeStrip();
   }
   new ResizeObserver(resize).observe(stage);
 
+  // ------------------------------------------------------------ helpers for the frame
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _p = new THREE.Vector3();
+  function setLink(m, from, to) {
+    from.getWorldPosition(_a); to.getWorldPosition(_b);
+    const len = _a.distanceTo(_b); m.visible = len > 0.01;
+    if (!m.visible) return;
+    m.position.copy(_a).add(_b).multiplyScalar(0.5); m.scale.set(1, len, 1);
+    m.quaternion.setFromUnitVectors(_up, _b.clone().sub(_a).normalize());
+  }
+  function place(el, obj) {
+    obj.getWorldPosition(_p); _p.project(camera);
+    const vis = _p.z < 1 && Math.abs(_p.x) < 1.15 && Math.abs(_p.y) < 1.15; if (!vis) { el.style.visibility = "hidden"; return; }
+    el.style.visibility = "visible";
+    el.style.left = ((_p.x + 1) / 2 * stage.clientWidth) + "px";
+    el.style.top = Math.max((1 - _p.y) / 2 * stage.clientHeight, el.classList.contains("rigtag") ? 64 : 0) + "px";
+  }
+  function tipWorld(xoff, pitch, yaw, out) {
+    const c = Math.cos(pitch);
+    return out.set(xoff + LM * c * Math.cos(yaw), PIVOT_Y + LM * Math.sin(pitch), -LM * c * Math.sin(yaw));
+  }
+
+  // ------------------------------------------------------------ live table
+  const live = {};
+  function renderLiveRows() {
+    const tb = $("livebody"); tb.innerHTML = "";
+    Object.keys(live).forEach((k) => delete live[k]);
+    [...NAMES].reverse().forEach((n) => {
+      if (!visible(n)) return;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="name"><b style="color:${COLOR[n]}">${n}</b></td>
+        <td><span class="pill"></span></td><td class="ep"></td><td class="ey"></td>
+        <td><span class="cumbar"><i style="background:${COLOR[n]}"></i></span><span class="cum"></span></td>
+        <td class="wm"></td><td class="wt"></td>
+        <td><span class="ubar"><i class="uvb" style="background:${COLOR[n]}"></i></span><span class="uv"></span> <span class="satflag uvs"></span></td>
+        <td><span class="ubar"><i class="uhb" style="background:${COLOR[n]}"></i></span><span class="uh"></span> <span class="satflag uhs"></span></td>`;
+      tb.appendChild(tr);
+      const q = (s) => tr.querySelector(s);
+      live[n] = { pill: q(".pill"), ep: q(".ep"), ey: q(".ey"), bar: q(".cumbar i"), cum: q(".cum"), wm: q(".wm"), wt: q(".wt"),
+                  uvb: q(".uvb"), uv: q(".uv"), uvs: q(".uvs"), uhb: q(".uhb"), uh: q(".uh"), uhs: q(".uhs") };
+    });
+  }
+  const cumMax = Math.max(...NAMES.map((n) => DATA.controllers[n].cum[K - 1]));
+  const fmtRpm = (v) => { const n = Math.round(v); return (n < 0 ? "−" : "") + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " rpm"; };
+  const fmtErr = (v) => (Math.abs(v) < 0.05 ? "" : v > 0 ? "+" : "−") + num(Math.abs(v)) + "°";
+  const setU = (el, u) => { const w = Math.min(Math.abs(u), 1) * 50; el.style.width = w + "%"; el.style.left = (u >= 0 ? 50 : 50 - w) + "%"; };
+
   // ------------------------------------------------------------ strip chart
   const strip = $("strip"), sctx = strip.getContext("2d");
   let stripW = 0, stripH = 0;
+  const PADL = 54, PADR = 10, PADT = 16, PADB = 18, GAP = 14;
   function sizeStrip() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     stripW = strip.clientWidth; stripH = strip.clientHeight;
     strip.width = stripW * dpr; strip.height = stripH * dpr; sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
+  function buildLegend() {
+    const items = [`<span><i style="border-color:var(--ref);border-top-style:dashed"></i>hedef</span>`]
+      .concat([...NAMES].reverse().filter(visible).map((n) => `<span><i style="border-color:${COLOR[n]}"></i>${n}</span>`));
+    if (predOn()) items.push(`<span><i style="border-color:var(--nmpc);border-top-style:dotted"></i>N-MPC'nin o anki tahmini</span>`);
+    items.push(`<span>Alt şerit: birikmiş takip hatası. Eğri ne kadar dik yükselirse o anda hata o kadar büyüktür.</span>`);
+    $("chartlegend").innerHTML = items.join("");
+  }
+  function lims(rkey) {
+    let lo = Infinity, hi = -Infinity;
+    NAMES.forEach((n) => { const d = DATA.controllers[n][rkey]; for (let i = 0; i < K; i++) { const r = d[i] * DEG; lo = Math.min(lo, r); hi = Math.max(hi, r); } });
+    return [Math.floor((lo - 25) / 10) * 10, Math.ceil((hi + 25) / 10) * 10];
+  }
+  const LIM = { pitch: lims("rp"), yaw: lims("ry") };
   function drawStrip() {
     if (!stripW) return;
-    const d = D(), n = d.t.length, Tend = DATA.duration, padL = 46, padR = 8, lanes = [["pitch", "rp", css("--main")], ["yaw", "ry", css("--tail")]];
+    const Tend = DATA.duration, x = (t) => PADL + (t / Tend) * (stripW - PADL - PADR);
+    const laneH = (stripH - PADT - PADB - 2 * GAP) / 3;
     sctx.clearRect(0, 0, stripW, stripH);
-    const GAP = 16, laneH = (stripH - 20 - GAP) / 2, x = (t) => padL + (t / Tend) * (stripW - padL - padR);
-    sctx.font = "11px " + css("--font-mono"); sctx.textBaseline = "middle";
-    lanes.forEach(([k, rk, col], li) => {
-      const y0 = li * (laneH + GAP) + 6, h = laneH - 6;
-      const lim = DATA.limits[k], y = (v) => y0 + h - ((v * DEG - lim[0]) / (lim[1] - lim[0])) * h;
+    sctx.font = "11px " + css("--font-mono");
+    CH.forEach((c, i) => {
+      if (i === st.ch) { sctx.fillStyle = "rgba(238,243,248,0.06)"; sctx.fillRect(x(c.t0), PADT, x(c.t1) - x(c.t0), stripH - PADT - PADB); }
+      sctx.strokeStyle = css("--line"); sctx.lineWidth = 1; sctx.beginPath(); sctx.moveTo(x(c.t0), PADT - 4); sctx.lineTo(x(c.t0), stripH - PADB); sctx.stroke();
+      sctx.fillStyle = i === st.ch ? css("--fg") : css("--muted"); sctx.textAlign = "left"; sctx.textBaseline = "alphabetic";
+      sctx.fillText((stripW > 640 ? "adım " : "") + (i + 1), x(c.t0) + 4, PADT - 4);
+    });
+    const lanes = [["pitch", "rp", LIM.pitch, "pitch"], ["yaw", "ry", LIM.yaw, "yaw"], ["cum", null, [0, cumMax * 1.05], "hata ∫"]];
+    lanes.forEach(([k, rk, lim, lab], li) => {
+      const y0 = PADT + li * (laneH + GAP), h = laneH;
+      const scale = k === "cum" ? 1 : DEG;
+      const y = (v) => Math.min(Math.max(y0 + h - ((v * scale - lim[0]) / (lim[1] - lim[0])) * h, y0), y0 + h);
       sctx.strokeStyle = css("--line"); sctx.lineWidth = 1; sctx.setLineDash([]);
-      const ticks = [lim[0], lim[1]];
-      const y0px = y0 + h - ((0 - lim[0]) / (lim[1] - lim[0])) * h;
-      if (lim[0] < 0 && lim[1] > 0 && Math.min(y0px - y0, y0 + h - y0px) > 14) ticks.push(0);   // 0 only if it has room
+      sctx.fillStyle = css("--muted"); sctx.textAlign = "right"; sctx.textBaseline = "middle";
+      const ticks = k === "cum" ? [0, Math.floor(cumMax / 100) * 100] : [lim[0], 0, lim[1]].filter((v) => v >= lim[0] && v <= lim[1]);
       ticks.forEach((v) => {
         const yy = y0 + h - ((v - lim[0]) / (lim[1] - lim[0])) * h;
-        sctx.beginPath(); sctx.moveTo(padL, yy); sctx.lineTo(stripW - padR, yy); sctx.stroke();
-        sctx.fillStyle = css("--muted"); sctx.textAlign = "right"; sctx.fillText(v.toFixed(0) + "°", padL - 6, yy);
+        sctx.beginPath(); sctx.moveTo(PADL, yy); sctx.lineTo(stripW - PADR, yy); sctx.stroke();
+        sctx.fillText(k === "cum" ? v + "°·s" : v + "°", PADL - 6, yy);
       });
-      const clip = (v) => Math.min(Math.max(v, y0), y0 + h);
+      sctx.save(); sctx.translate(9, y0 + h / 2); sctx.rotate(-Math.PI / 2); sctx.textAlign = "center"; sctx.fillText(lab, 0, 0); sctx.restore();
       const line = (arr, color, dash, w) => {
         sctx.strokeStyle = color; sctx.lineWidth = w; sctx.setLineDash(dash); sctx.beginPath();
-        for (let i = 0; i < n; i++) { const px = x(i * Ts), py = clip(y(arr[i])); i ? sctx.lineTo(px, py) : sctx.moveTo(px, py); }
-        sctx.stroke();
+        for (let i = 0; i < arr.length; i++) { const px = x(i * Ts), py = y(arr[i]); i ? sctx.lineTo(px, py) : sctx.moveTo(px, py); }
+        sctx.stroke(); sctx.setLineDash([]);
       };
-      // shaded area between target and actual = tracking error
-      sctx.fillStyle = css("--far"); sctx.globalAlpha = 0.22; sctx.beginPath();
-      for (let i = 0; i < n; i++) { const px = x(i * Ts), py = clip(y(d[k][i])); i ? sctx.lineTo(px, py) : sctx.moveTo(px, py); }
-      for (let i = n - 1; i >= 0; i--) sctx.lineTo(x(i * Ts), clip(y(d[rk][i])));
-      sctx.closePath(); sctx.fill(); sctx.globalAlpha = 1;
-      line(d[rk], css("--ref"), [5, 3], 1.6);
-      line(d[k], col, [], 1.6);
-      sctx.setLineDash([]); sctx.fillStyle = col; sctx.textAlign = "left"; sctx.fillText(k, padL + 4, y0 + 8);
+      if (rk) line(DATA.controllers[NAMES[0]][rk], css("--ref"), [5, 3], 1.4);
+      NAMES.filter(visible).forEach((n) => line(DATA.controllers[n][k], COLOR[n], [], n === "N-MPC" ? 1.8 : 1.5));
+      if (rk && predOn()) {   // the N-MPC's current prediction, drawn ahead of the playhead
+        const kk = Math.min(Math.max(Math.round(st.t / Ts), 0), K - 1), arr = P[k];
+        sctx.strokeStyle = "#ffffff"; sctx.lineWidth = 2.4; sctx.setLineDash([2, 3]); sctx.beginPath();
+        for (let j = 0; j < P.J; j++) { const px = x(kk * Ts + j * DATA.predDt), py = y(arr[kk * P.J + j]); j ? sctx.lineTo(px, py) : sctx.moveTo(px, py); }
+        sctx.globalAlpha = 0.35; sctx.stroke(); sctx.globalAlpha = 1; sctx.strokeStyle = css("--nmpc"); sctx.lineWidth = 1.8; sctx.stroke(); sctx.setLineDash([]);
+      }
     });
-    // time axis + playhead
     sctx.fillStyle = css("--muted"); sctx.textAlign = "center"; sctx.textBaseline = "alphabetic";
-    for (let s = 0; s <= Tend + 1e-9; s += 10) sctx.fillText(s + " s", x(s), stripH - 2);
-    if (d.t.length - 1 < Math.round(Tend / Ts)) {   // run stopped early
-      sctx.fillStyle = css("--warn"); sctx.fillText("simülasyon burada durdu", x(T()), 12);
-    }
-    sctx.strokeStyle = css("--fg"); sctx.lineWidth = 1.2; sctx.beginPath(); sctx.moveTo(x(st.t), 2); sctx.lineTo(x(st.t), stripH - 16); sctx.stroke();
+    for (let s = 0; s <= Tend + 1e-9; s += 10) sctx.fillText(s + " s", x(s), stripH - 3);
+    sctx.strokeStyle = css("--fg"); sctx.lineWidth = 1.3; sctx.beginPath(); sctx.moveTo(x(st.t), PADT - 2); sctx.lineTo(x(st.t), stripH - PADB); sctx.stroke();
   }
   function seekFromStrip(e) {
-    const r = strip.getBoundingClientRect(), padL = 46, padR = 8;
-    st.t = Math.min(Math.max(((e.clientX - r.left - padL) / (r.width - padL - padR)) * DATA.duration, 0), T());
+    const r = strip.getBoundingClientRect();
+    seek(((e.clientX - r.left - PADL) / (r.width - PADL - PADR)) * DATA.duration);
   }
   let stripDrag = false;
-  strip.addEventListener("pointerdown", (e) => { stripDrag = true; strip.setPointerCapture(e.pointerId); seekFromStrip(e); });
+  strip.addEventListener("pointerdown", (e) => { stripDrag = true; strip.setPointerCapture(e.pointerId); setPlay(false); seekFromStrip(e); });
   strip.addEventListener("pointermove", (e) => { if (stripDrag) seekFromStrip(e); });
   strip.addEventListener("pointerup", () => { stripDrag = false; });
 
-  // ------------------------------------------------------------ controls
+  // ------------------------------------------------------------ narrative
+  const chips = $("chips"), body = $("storybody");
+  const chipBtns = [];
+  const addChip = (label, idx, title) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title;
+    b.onclick = () => goChapter(idx, false); chips.appendChild(b); chipBtns.push([idx, b]);
+  };
+  addChip("Giriş", -1, "Ne izliyoruz?");
+  CH.forEach((c, i) => addChip(String(i + 1), i, c.title));
+  addChip("Sonuç", NCH, "Sonuç");
+
+  const both = NAMES.length > 1;
+  function renderStory() {
+    chipBtns.forEach(([i, b]) => { b.setAttribute("aria-current", String(i === st.ch)); b.classList.toggle("done", st.done.has(i)); });
+    let h = "";
+    if (st.ch < 0) {
+      h += `<div class="eyebrow">Giriş</div><h2>Ne izliyoruz?</h2>`;
+      h += both ? `<p>Aynı TRMS modeli, aynı hedef açılar, aynı motor sınırları. <b style="color:${COLOR["PID"]}">Solda PID</b>, <b style="color:${COLOR["N-MPC"]}">sağda N-MPC</b> kontrol ediyor. İki taraf arasındaki tek fark kontrolcü.</p>`
+                : `<p>Bu sayfa ${NAMES[0]} kontrolcüsünün TRMS'yi nasıl yönettiğini gösteriyor.</p>`;
+      h += `<ul class="legendlist">
+        <li><b>Beyaz kiriş:</b> olması gereken açı (hedef).</li>
+        <li><b>Renkli kiriş:</b> sistemin gerçek konumu.</li>
+        <li><b>Hata çubuğu:</b> gerçek uçtan hedefe uzanır; ±${BAND}° içindeyse <span class="ok">yeşil</span>, dışındaysa <span class="far">kırmızı</span>.</li>
+        <li><b>Etiket:</b> <span class="ok">hedefte ✓</span> ancak kiriş en az 1 s bandın içinde kalınca yazar. Salınırken hedeften geçmesi <span style="color:var(--pass)">banttan geçiyor</span> olarak görünür.</li>
+        ${P ? `<li><b>Turuncu kesikli yol ve soluk kirişler:</b> N-MPC'nin o anda tahmin ettiği gelecek (${num(DATA.horizon_s)} s ileri).</li>` : ""}
+      </ul>`;
+      Object.entries(DATA.concepts).forEach(([n, txt]) => { h += `<div class="concept"><strong style="color:${COLOR[n]}">${n} nasıl çalışır?</strong><span>${esc(txt)}</span></div>`; });
+      h += `<p class="watch">60 saniyede ${NCH} hedef değişikliği var. <b>Başla</b>'ya basın: her adım oynar, sonunda durur ve sonucu açıklar.</p>`;
+    } else if (st.ch >= NCH) {
+      h += `<div class="eyebrow">Sonuç</div><h2>${both ? "İki kontrolcü, 60 saniye" : "Özet"}</h2>`;
+      h += `<table class="sum"><thead><tr><th></th>${DATA.summary.rows.map((r) => `<th style="color:${COLOR[r.name]}">${r.name}</th>`).join("")}</tr></thead><tbody>`;
+      const row = (lab, k) => `<tr><th>${lab}</th>${DATA.summary.rows.map((r) => `<td>${esc(r[k])}</td>`).join("")}</tr>`;
+      h += row(`±${BAND}°'ye oturan adım`, "settled") + row("Ortalama oturma süresi", "settle_mean") + row("Birikmiş hata", "iae")
+         + row("Kontrol eforu ∫u²", "effort") + row("Ana motor sınırda", "sat") + row("Hesap süresi / örnek", "cpu");
+      h += `</tbody></table>`;
+      (DATA.summary.text || []).forEach((t, i) => { h += i === 0 ? `<p class="takeaway">${esc(t)}</p>` : `<p class="note">${esc(t)}</p>`; });
+    } else {
+      const c = CH[st.ch];
+      h += `<div class="eyebrow">Adım ${st.ch + 1} / ${NCH} · t = ${num(c.t0, 0)}–${num(c.t1, 0)} s</div><h2>${esc(c.title)}</h2>`;
+      h += `<p>${esc(c.what)}</p><ul class="res">`;
+      c.lines.forEach((l) => {
+        const n = NAMES.find((nm) => l.startsWith(nm + ":"));
+        h += `<li style="--c:${n ? COLOR[n] : css("--muted")}"><span>${n ? `<b style="color:${COLOR[n]}">${n}</b>${esc(l.slice(n.length))}` : esc(l)}</span></li>`;
+      });
+      h += `</ul><p class="takeaway">${esc(c.key)}</p>`;
+      c.notes.forEach((t) => (h += `<p class="note">${esc(t)}</p>`));
+      h += `<p class="watch"><b>İzleyin:</b> ${esc(c.watch)}</p>`;
+    }
+    body.innerHTML = h; body.scrollTop = 0;
+    $("prevch").disabled = st.ch <= -1; $("nextch").disabled = st.ch >= NCH;
+    updateMainBtn();
+  }
+  function updateMainBtn() {
+    const b = $("mainbtn");
+    if (st.playing) b.textContent = "❚❚ Durdur";
+    else if (st.ch < 0) b.textContent = "Başla ▶";
+    else if (st.ch >= NCH) b.textContent = "Baştan izle ↺";
+    else if (st.t >= CH[st.ch].t1 - 0.02) b.textContent = st.ch + 1 < NCH ? `Sonraki: adım ${st.ch + 2} ▶` : "Sonuç ▶";
+    else if (st.t > CH[st.ch].t0 + 0.02) b.textContent = "Devam ▶";
+    else b.textContent = `Oynat: adım ${st.ch + 1} ▶`;
+  }
+  function chapterAt(t) { let i = 0; for (let k = 0; k < NCH; k++) if (t >= CH[k].t0 - 1e-6) i = k; return i; }
+  function goChapter(i, play) {
+    st.ch = Math.max(-1, Math.min(NCH, i));
+    if (st.ch < 0) seek(0, true); else if (st.ch >= NCH) seek(T(), true); else seek(CH[st.ch].t0, true);
+    setPlay(!!play && st.ch >= 0 && st.ch < NCH);
+    renderStory();
+  }
+  function mainAction() {
+    if (st.playing) { setPlay(false); return; }
+    if (st.ch < 0) { goChapter(0, true); return; }
+    if (st.ch >= NCH) { st.done.clear(); goChapter(-1, false); return; }
+    if (st.t >= CH[st.ch].t1 - 0.02) { st.ch + 1 < NCH ? goChapter(st.ch + 1, true) : goChapter(NCH, false); return; }
+    setPlay(true);
+  }
+  $("mainbtn").onclick = mainAction;
+  $("prevch").onclick = () => goChapter(st.ch - 1, false);
+  $("nextch").onclick = () => goChapter(st.ch + 1, false);
+
+  // ------------------------------------------------------------ transport
   const playBtn = $("play"), scrub = $("scrub");
-  const setPlay = (p) => { st.playing = p; playBtn.textContent = p ? "❚❚ Durdur" : "▶ Oynat"; };
-  playBtn.onclick = () => { if (!st.playing && st.t >= T() - 1e-6) st.t = 0; setPlay(!st.playing); };
+  function setPlay(p) { st.playing = p; playBtn.textContent = p ? "❚❚ Durdur" : "▶ Oynat"; updateMainBtn(); }
+  function seek(t, keepChapter) {
+    st.t = Math.min(Math.max(t, 0), T());
+    if (!keepChapter) { const c = chapterAt(st.t); if (c !== st.ch) { st.ch = c; renderStory(); } }
+    updateMainBtn();
+  }
+  playBtn.onclick = () => {
+    if (st.playing) { setPlay(false); return; }
+    if (st.ch < 0 || st.t >= T() - 1e-6) { st.done.clear(); goChapter(0, true); return; }
+    if (st.ch < NCH && st.t >= CH[st.ch].t1 - 0.02) { goChapter(st.ch + 1, true); return; }
+    setPlay(true);
+  };
   scrub.max = DATA.duration; scrub.step = Ts;
-  scrub.oninput = () => { st.t = Math.min(+scrub.value, T()); };
+  scrub.oninput = () => { setPlay(false); seek(+scrub.value); };
   $("speed").onchange = (e) => { st.speed = +e.target.value; };
   $("spin").onchange = (e) => { st.spin = +e.target.value; };
-  $("showref").onchange = (e) => { ghost.yawG.visible = e.target.checked; };
-  const showTarget = () => $("showref").checked;
-  $("showthrust").onchange = (e) => { rig.arrowMain.visible = rig.arrowTail.visible = e.target.checked; };
+  $("showpred").onchange = layoutRigs;
   document.addEventListener("keydown", (e) => {
-    if (e.code === "Space" && !/INPUT|SELECT|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); playBtn.click(); }
+    if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (e.code === "Space") { e.preventDefault(); mainAction(); }
+    else if (e.code === "ArrowRight") { e.preventDefault(); goChapter(st.ch + 1, false); }
+    else if (e.code === "ArrowLeft") { e.preventDefault(); goChapter(st.ch - 1, false); }
   });
-  const seg = $("ctrlseg");
-  if (names.length < 2) seg.hidden = true;
-  names.forEach((nm) => {
-    const b = document.createElement("button"); b.type = "button"; b.textContent = nm;
-    b.setAttribute("aria-pressed", String(nm === ctrl));
-    b.onclick = () => { ctrl = nm; st.t = Math.min(st.t, T()); [...seg.children].forEach((c) => c.setAttribute("aria-pressed", String(c.textContent === nm))); };
-    seg.appendChild(b);
+
+  const vseg = $("viewseg");
+  const views = both ? [["both", "Yan yana"], ["N-MPC", "Sadece N-MPC"], ["PID", "Sadece PID"]] : [];
+  if (!views.length) vseg.hidden = true;
+  views.forEach(([v, lab]) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = lab; b.dataset.v = v;
+    b.setAttribute("aria-pressed", String(v === st.view));
+    b.onclick = () => { st.view = v; [...vseg.children].forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.v === v))); layoutRigs(); };
+    vseg.appendChild(b);
   });
 
   $("subtitle").textContent = DATA.subtitle;
-  $("note").textContent = DATA.note;
+  $("foot").textContent = "Kiriş açıları, rotor hızları ve itkiler Python simülasyonunun telemetrisinden birebir alınmıştır (Feedback TRMS 33-220 modeli, arXiv:1306.4883). "
+    + "Bu sayfa hiçbir şey hesaplamaz, yalnızca oynatır. Pervaneler ekranda görülebilsin diye seçilen oranda yavaş çizilir; gerçek hız tabloda rpm olarak yazar. "
+    + `"Oturdu" demek: hata ±${BAND}° içine girdi ve adım bitene kadar (en az 1 s) orada kaldı.`;
 
   // ------------------------------------------------------------ frame
-  const nz = (s) => (/^-0(\.0+)?$/.test(s) ? s.slice(1) : s);          // no "-0.0"
-  const fmtDeg = (r) => nz((r * DEG).toFixed(1)) + "°";
-  const fmtRpm = (v) => { const n = Math.round(v); return (n < 0 ? "−" : "") + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "\u202f") + " rpm"; };
-  const setBar = (el, u) => { const w = Math.min(Math.abs(u), 1) * 50; el.style.width = w + "%"; el.style.left = (u >= 0 ? 50 : 50 - w) + "%"; };
-  const Fmax = DATA.thrustMax;
-
+  const _tip = new THREE.Vector3();
   let last = performance.now();
   function frame(now) {
     const dt = Math.min((now - last) / 1000, 0.1); last = now;
     if (st.playing) {
-      st.t += dt * st.speed;
-      if (st.t >= T()) { st.t = T(); setPlay(false); }
+      let tn = st.t + dt * st.speed;
+      const c = st.ch >= 0 && st.ch < NCH ? CH[st.ch] : null;
+      if (c && $("guided").checked && tn >= c.t1 - 1e-6) {
+        st.t = c.t1 - 0.001; st.done.add(st.ch); setPlay(false); renderStory();
+      } else if (tn >= T()) {
+        st.t = T(); setPlay(false); if (st.ch >= 0 && st.ch < NCH) st.done.add(st.ch); st.ch = NCH; renderStory();
+      } else {
+        st.t = tn;
+        const ci = chapterAt(st.t);
+        if (c && ci !== st.ch) { st.done.add(st.ch); st.ch = ci; renderStory(); }
+      }
     }
-    const pitch = sample("pitch"), yaw = sample("yaw"), rp = sample("rp"), ry = sample("ry");
-    const wm = sample("wm"), wt = sample("wt"), fm = sample("fm"), ft = sample("ft"), uv = sample("uv"), uh = sample("uh");
 
-    rig.yawG.rotation.y = yaw; rig.pitchG.rotation.z = pitch;
-    ghost.yawG.rotation.y = ry; ghost.pitchG.rotation.z = rp;
+    NAMES.forEach((n) => {
+      const r = rigs[n];
+      if (!r.show) return;
+      const pitch = sample(n, "pitch"), yaw = sample(n, "yaw"), rp = sample(n, "rp"), ry = sample(n, "ry");
+      const wm = sample(n, "wm"), wt = sample(n, "wt"), fm = sample(n, "fm"), ft = sample(n, "ft"), uv = sample(n, "uv"), uh = sample(n, "uh"), cum = sample(n, "cum");
+      r.yawG.rotation.y = yaw; r.pitchG.rotation.z = pitch; r.tYaw.rotation.y = ry; r.tPitch.rotation.z = rp;
+      if (st.playing) {
+        r.angMain += (wm / 60) * 2 * Math.PI * dt * st.speed * st.spin;
+        r.angTail += (wt / 60) * 2 * Math.PI * dt * st.speed * st.spin;
+      }
+      r.main.prop.rotation.y = r.angMain; r.tail.prop.rotation.y = r.angTail;
+      r.main.disc.material.opacity = 0.3 * Math.min(Math.abs(wm) / DATA.rpmMax.main, 1);
+      r.tail.disc.material.opacity = 0.3 * Math.min(Math.abs(wt) / DATA.rpmMax.tail, 1);
+      const arrow = (a, F, axis) => {
+        const on = Math.abs(F) > 0.004 && $("showthrust").checked; a.visible = on; if (!on) return;
+        a.setDirection(axis.clone().multiplyScalar(Math.sign(F))); a.setLength(0.18 + 0.7 * Math.min(Math.abs(F) / DATA.thrustMax, 1), 0.12, 0.08);
+      };
+      arrow(r.arrowMain, fm, new THREE.Vector3(0, 1, 0)); arrow(r.arrowTail, ft, new THREE.Vector3(0, 0, 1));
+      r.root.updateMatrixWorld(true);
 
-    // propellers: advance by the simulated speed (rad/s) x playback speed x display scale
-    if (st.playing) {
-      st.angMain += (wm / 60) * 2 * Math.PI * dt * st.speed * st.spin;
-      st.angTail += (wt / 60) * 2 * Math.PI * dt * st.speed * st.spin;
+      const ep = (rp - pitch) * DEG, ey = (ry - yaw) * DEG, ok = Math.abs(ep) < BAND && Math.abs(ey) < BAND;
+      r.linkMat.color.set(ok ? 0x5cc98b : 0xef6b5b);
+      setLink(r.linkM, r.tipM, r.ttM); setLink(r.linkT, r.tipT, r.ttT);
+      const sk = status(n, ok), stEl = r.tag.querySelector(".st");
+      stEl.textContent = sk === "ok" ? "hedefte ✓" : sk === "pass" ? "banttan geçiyor" : "hata " + num(Math.hypot(ep, ey)) + "°";
+      stEl.className = "st " + sk;
+      place(r.tag, r.anchor);
+
+      const L = live[n];
+      if (L) {
+        L.pill.textContent = sk === "ok" ? "Hedefte ✓" : sk === "pass" ? "Banttan geçiyor" : "Hedefte değil"; L.pill.className = "pill " + sk;
+        L.ep.textContent = fmtErr(ep); L.ep.className = "ep " + (Math.abs(ep) < BAND ? "ok" : "far");
+        L.ey.textContent = fmtErr(ey); L.ey.className = "ey " + (Math.abs(ey) < BAND ? "ok" : "far");
+        L.bar.style.width = (100 * cum / cumMax) + "%"; L.cum.textContent = Math.round(cum) + "°·s";
+        L.wm.textContent = fmtRpm(wm); L.wt.textContent = fmtRpm(wt);
+        setU(L.uvb, uv); L.uv.textContent = num(uv, 2); L.uvs.textContent = Math.abs(uv) > 0.999 ? "SINIRDA" : "";
+        setU(L.uhb, uh); L.uh.textContent = num(uh, 2); L.uhs.textContent = Math.abs(uh) > 0.999 ? "SINIRDA" : "";
+      }
+    });
+
+    if (predOn()) {
+      const kk = Math.min(Math.max(Math.round(st.t / Ts), 0), K - 1), J = P.J, xoff = rigs["N-MPC"].root.position.x;
+      const pos = pred.path.geometry.attributes.position;
+      for (let j = 0; j < J; j++) { tipWorld(xoff, P.pitch[kk * J + j], P.yaw[kk * J + j], _tip); pos.setXYZ(j, _tip.x, _tip.y, _tip.z); pred.dots[j].position.copy(_tip); }
+      pos.needsUpdate = true; pred.path.computeLineDistances();
+      pred.ghosts.forEach((g) => { g.y.rotation.y = P.yaw[kk * J + g.j]; g.p.rotation.z = P.pitch[kk * J + g.j]; });
+      rigs["N-MPC"].root.updateMatrixWorld(true);
+      place(pred.tag, pred.ghosts[pred.ghosts.length - 1].d); pred.tag.textContent = "+" + num(DATA.horizon_s) + " s tahmin";
     }
-    rig.main.prop.rotation.y = st.angMain; rig.tail.prop.rotation.y = st.angTail;
-    rig.main.disc.material.opacity = 0.32 * Math.min(Math.abs(wm) / DATA.rpmMax.main, 1);
-    rig.tail.disc.material.opacity = 0.32 * Math.min(Math.abs(wt) / DATA.rpmMax.tail, 1);
 
-    const arrow = (a, F, axis) => {
-      const on = Math.abs(F) > 0.004 && $("showthrust").checked; a.visible = on; if (!on) return;
-      a.setDirection(axis.clone().multiplyScalar(Math.sign(F)));
-      a.setLength(0.18 + 0.7 * Math.min(Math.abs(F) / Fmax, 1), 0.12, 0.08);
-    };
-    arrow(rig.arrowMain, fm, new THREE.Vector3(0, 1, 0));
-    arrow(rig.arrowTail, ft, new THREE.Vector3(0, 0, 1));
-
-    const ep = (rp - pitch) * DEG, ey = (ry - yaw) * DEG, onTarget = Math.abs(ep) < 2 && Math.abs(ey) < 2;
-    linkMat.color.set(onTarget ? 0x5cc98b : 0xef6b5b);
-    setLink(linkM, rig.tipM, ghost.tipM); setLink(linkT, rig.tipT, ghost.tipT);
-    if (!showTarget()) linkM.visible = linkT.visible = false;
-    const tagT = $("tagTarget"), tagG = $("tagGap");
-    if (showTarget()) { place(tagT, ghost.tipM); } else tagT.hidden = true;
-    const gapDeg = Math.hypot(ep, ey);
-    if (showTarget() && gapDeg >= 0.5) {
-      place(tagG, rig.tipM); tagG.textContent = "hata " + gapDeg.toFixed(1) + "°"; tagG.className = "tag gap " + (onTarget ? "ok" : "far");
-    } else tagG.hidden = true;
-    const ec = (el, v) => { el.textContent = (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "°"; el.className = "big " + (Math.abs(v) < 2 ? "ok" : "far"); };
-    ec($("epitch"), ep); ec($("eyaw"), ey);
-    const pill = $("status"); pill.textContent = onTarget ? "Hedefte ✓ (±2° içinde)" : "Hedefte değil"; pill.className = "pill " + (onTarget ? "ok" : "far");
-
-    $("clock").innerHTML = "t = " + st.t.toFixed(2) + " <span>s · " + ctrl + "</span>";
-    $("pitch").textContent = fmtDeg(pitch); $("rpitch").textContent = fmtDeg(rp);
-    $("yaw").textContent = fmtDeg(yaw); $("ryaw").textContent = fmtDeg(ry);
-    $("wm").textContent = fmtRpm(wm); $("wt").textContent = fmtRpm(wt);
-    $("fm").textContent = nz(fm.toFixed(3)) + " N"; $("ft").textContent = nz(ft.toFixed(3)) + " N";
-    $("uv").textContent = nz(uv.toFixed(2)); $("uh").textContent = nz(uh.toFixed(2));
-    setBar($("uvbar"), uv); setBar($("uhbar"), uh);
-    $("uvsat").classList.toggle("on", Math.abs(uv) > 0.999); $("uhsat").classList.toggle("on", Math.abs(uh) > 0.999);
+    $("clock").innerHTML = "t = " + num(st.t, 2) + " <span>s" + (st.ch >= 0 && st.ch < NCH ? " · adım " + (st.ch + 1) : "") + "</span>";
     if (document.activeElement !== scrub) scrub.value = st.t;
-
     renderer.render(scene, camera);
     drawStrip();
     requestAnimationFrame(frame);
   }
-  placeCamera(); resize(); setPlay(st.playing);
+
+  layoutRigs(); resize(); renderStory();
   requestAnimationFrame(frame);
 })();
 </script>
